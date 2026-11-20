@@ -351,6 +351,104 @@ class RenderTests(unittest.TestCase):
         self.assertTrue(drawn(True))
         self.assertFalse(drawn(False))
 
+    def test_bus_value_override_text(self):
+        from edgeweaver.model import BusValue
+        from edgeweaver.renderer import RenderOptions, render_document
+
+        class Backend:
+            def __init__(self):
+                self.texts = []
+
+            def line(self, *args, **kwargs):
+                pass
+
+            def rect(self, *args, **kwargs):
+                pass
+
+            def polygon(self, *args, **kwargs):
+                pass
+
+            def cubic(self, *args, **kwargs):
+                pass
+
+            def text(self, x, y, s, **kw):
+                self.texts.append(s)
+
+        doc = load_tim(SAMPLES / "2-3-2.tim")
+        bus = next(row for row in doc.rows if doc.is_bus(row))
+        doc.bus_values.append(BusValue(bus.name, 0, doc.slots, "8h'1a"))
+        backend = Backend()
+        render_document(backend, doc, RenderOptions())
+        self.assertIn("8h'1a", backend.texts)
+        # default single-character bus labels are suppressed by the override
+        self.assertFalse(any(text in ("2", "3", "4") for text in backend.texts))
+
+    def test_bus_value_insert_splits_run(self):
+        from edgeweaver.model import BusValue, DATA_TAIL, Document, Row
+        from edgeweaver.renderer import RenderOptions, render_document
+
+        class Backend:
+            def __init__(self):
+                self.lines = []
+                self.texts = []
+
+            def line(self, x1, y1, x2, y2, **kw):
+                self.lines.append((x1, y1, x2, y2, kw))
+
+            def rect(self, *args, **kwargs):
+                pass
+
+            def polygon(self, *args, **kwargs):
+                pass
+
+            def cubic(self, *args, **kwargs):
+                pass
+
+            def text(self, x, y, s, **kw):
+                self.texts.append(s)
+
+        doc = Document()
+        doc.slots = 12
+        doc.slot_width = 30
+        doc.name_width = 70
+        doc.signal_height = 16
+        doc.rows = [Row("BUS", "data", "4" * 12, DATA_TAIL)]
+        doc.ensure_arrays()
+        doc.bus_values = [BusValue("BUS", 4, 6, "8h'1a")]
+
+        backend = Backend()
+        render_document(backend, doc, RenderOptions())
+        # original run survives on both sides; inserted text sits in between
+        self.assertEqual(backend.texts.count("4"), 2)
+        self.assertIn("8h'1a", backend.texts)
+        x4 = doc.slot_to_x(4)
+        x6 = doc.slot_to_x(6)
+        top = doc.row_top(0)
+        bottom = top + doc.signal_height
+        verticals = [(a, b) for a, b, c, d, _ in backend.lines
+                     if abs(a - c) < 0.01 and abs(b - top) < 0.01
+                     and abs(d - bottom) < 0.01]
+        self.assertTrue(any(abs(x - x4) < 0.01 for x, _ in verticals))
+        self.assertTrue(any(abs(x - x6) < 0.01 for x, _ in verticals))
+
+        # an override spanning several runs hides their internal boundaries
+        doc.rows[0].state = "223344" + "0" * 6
+        doc.rows[0].raw = None
+        doc.bus_values = [BusValue("BUS", 1, 5, "16h'abcd")]
+        backend = Backend()
+        render_document(backend, doc, RenderOptions())
+        x2 = doc.slot_to_x(2)
+        x4 = doc.slot_to_x(4)
+        x1 = doc.slot_to_x(1)
+        x5 = doc.slot_to_x(5)
+        verticals = [(a, b) for a, b, c, d, _ in backend.lines
+                     if abs(a - c) < 0.01 and abs(b - top) < 0.01
+                     and abs(d - bottom) < 0.01]
+        self.assertFalse(any(abs(x - x2) < 0.01 for x, _ in verticals))
+        self.assertFalse(any(abs(x - x4) < 0.01 for x, _ in verticals))
+        self.assertTrue(any(abs(x - x1) < 0.01 for x, _ in verticals))
+        self.assertTrue(any(abs(x - x5) < 0.01 for x, _ in verticals))
+
     def test_pixel_geometry_2_3_2(self):
         doc = load_tim(SAMPLES / "2-3-2.tim")
         with tempfile.TemporaryDirectory() as td:

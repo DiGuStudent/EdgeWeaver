@@ -41,7 +41,7 @@ class RenderOptions:
     show_grid: bool = True
     show_names: bool = True
     show_bus_values: bool = True
-    show_divider: bool = True
+    show_divider: bool = False
     show_bounding_rect: bool = False
     show_logo: bool = False
     period_lines: bool = True
@@ -357,6 +357,23 @@ def draw_digital(b, row: Row, doc: Document, top: float):
                color="#000000", width=1.0)
 
 
+def _subtract_ranges(intervals, cuts):
+    """Return *intervals* with all *cuts* removed (half-open ranges)."""
+    result = list(intervals)
+    for cut_start, cut_end in cuts:
+        updated = []
+        for start, end in result:
+            if cut_end <= start or cut_start >= end:
+                updated.append((start, end))
+                continue
+            if start < cut_start:
+                updated.append((start, cut_start))
+            if cut_end < end:
+                updated.append((cut_end, end))
+        result = updated
+    return result
+
+
 def draw_bus(b, row: Row, doc: Document, top: float, opts: RenderOptions):
     x0 = doc.wave_x0
     sw = doc.slot_width
@@ -364,6 +381,8 @@ def draw_bus(b, row: Row, doc: Document, top: float, opts: RenderOptions):
     mid = top + h / 2.0
     state = row.padded_state()
     runs = list(_runs(state, doc.slots))
+    overrides = [value for value in doc.bus_values
+                 if value.row == row.name and value.text]
     # rails and hatching per run; high-Z is a single line at the midpoint
     for start, end, ch in runs:
         xa, xb = x0 + start * sw, x0 + end * sw
@@ -382,12 +401,52 @@ def draw_bus(b, row: Row, doc: Document, top: float, opts: RenderOptions):
                     b.line(cx0, top + (cx0 - x), cx1, top + (cx1 - x),
                            color="#c8c8c8", width=0.8)
                 x += step
-        if start > 0:
+        inside_override = any(value.start < start < value.end
+                              for value in overrides)
+        if start > 0 and not inside_override:
             b.line(xa, top, xa, top + h, color="#000000", width=1.0)
-        if opts.show_bus_values and ch != "Z":
-            cx = (xa + xb) / 2.0
-            b.text(cx, top + h * 0.5 + 3.0, ch, size=7.0, family="Arial",
-                   color="#808080", anchor="middle")
+        if ch == "Z":
+            continue
+        # Inserting a value over a sub-range splits the run's default label
+        # around the override: one remaining part (two segments) at an edge,
+        # two remaining parts (three segments) in the middle.
+        gaps = _subtract_ranges(
+            [(start, end)],
+            [(max(start, value.start), min(end, value.end))
+             for value in overrides
+             if value.start < end and value.end > start])
+        if opts.show_bus_values:
+            for gap_start, gap_end in gaps:
+                cx = (x0 + (gap_start + gap_end) / 2.0 * sw)
+                b.text(cx, top + h * 0.5 + 3.0, ch, size=7.0,
+                       family="Arial", color="#808080", anchor="middle")
+        # visible separators at the inserted value's boundaries
+        for value in overrides:
+            for edge in (value.start, value.end):
+                if start < edge < end:
+                    ex = x0 + edge * sw
+                    b.line(ex, top, ex, top + h, color="#000000", width=1.0)
+
+
+BUS_VALUE_COLOR = "#404040"
+
+
+def draw_bus_value(b, value, doc: Document):
+    """Draw a custom bus text override over its slot range."""
+    ri = doc.find_row(value.row)
+    if ri < 0 or not value.text:
+        return
+    row = doc.rows[ri]
+    if row.kind == "separator" or not doc.is_bus(row):
+        return
+    start = max(0, min(doc.slots, int(value.start)))
+    end = max(start, min(doc.slots, int(value.end)))
+    if end <= start:
+        return
+    top = doc.row_top(ri)
+    cx = (doc.slot_to_x(start) + doc.slot_to_x(end)) / 2.0
+    b.text(cx, top + doc.signal_height * 0.5 + 3.0, value.text,
+           size=8.0, family="Arial", color=BUS_VALUE_COLOR, anchor="middle")
 
 
 def draw_separator(b, row: Row, doc: Document, top: float):
@@ -574,6 +633,10 @@ def render_document(b, doc: Document, opts: RenderOptions | None = None,
             draw_bus(b, row, doc, top, opts)
         elif row.kind in ("data", "clock", "raw"):
             draw_digital(b, row, doc, top)
+
+    if opts.show_bus_values:
+        for value in doc.bus_values:
+            draw_bus_value(b, value, doc)
 
     for label in doc.labels:
         draw_label(b, label, {r.name for r in doc.rows})

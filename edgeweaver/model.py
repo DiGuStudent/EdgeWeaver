@@ -170,6 +170,20 @@ class TimeBreak:
 
 
 @dataclass
+class BusValue:
+    """Display text override for a bus-row slot range."""
+
+    row: str
+    start: int
+    end: int            # exclusive
+    text: str
+    raw: str | None = None
+
+    def clone(self) -> "BusValue":
+        return copy.deepcopy(self)
+
+
+@dataclass
 class Measurement:
     """Interval between two signal edges, drawn as guides + double arrow."""
 
@@ -200,6 +214,7 @@ class Document:
     arrows: list[Arrow] = field(default_factory=list)
     timebreaks: list[TimeBreak] = field(default_factory=list)
     measurements: list[Measurement] = field(default_factory=list)
+    bus_values: list[BusValue] = field(default_factory=list)
     ints9: list[int] = field(default_factory=lambda: [100, 5, 30, 0, 0, 0, 0, 0, 0])
     cs: list[str] = field(default_factory=lambda: ["", ""])
     ints2: list[int] = field(default_factory=lambda: [1, 1])
@@ -506,6 +521,10 @@ class Document:
 
     def add_measurement(self, measurement: Measurement) -> None:
         self.measurements.append(measurement)
+        self.touch()
+
+    def add_bus_value(self, value: BusValue) -> None:
+        self.bus_values.append(value)
         self.touch()
 
     def next_free_label_id(self) -> int:

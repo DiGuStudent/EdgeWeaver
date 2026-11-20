@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from PyQt6.QtWidgets import (
     QCheckBox,
     QColorDialog,
@@ -13,6 +15,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
+    QMessageBox,
     QPushButton,
     QSpinBox,
     QTabWidget,
@@ -259,6 +262,100 @@ class AnnotationsDialog(QDialog):
             self.measure_list.setCurrentRow(
                 min(row, len(self.doc.measurements) - 1))
             self._deleted()
+
+
+class BusValueDialog(QDialog):
+    """Edit the text shown inside a bus segment.
+
+    ``Content`` is the displayed text (free manual entry).  ``Format`` can
+    generate a width/base literal such as ``2b'11``, ``8d'10`` or ``8h'1a``
+    from ``Width`` and ``Value``.
+    """
+
+    FORMATS = (("Manual", ""), ("Binary", "b"),
+               ("Decimal", "d"), ("Hex", "h"))
+
+    def __init__(self, parent=None, text: str = ""):
+        super().__init__(parent)
+        self.setWindowTitle("Bus Value")
+        self._result = text
+        self._literal = re.compile(r"^(\d+)([bdh])'([0-9a-fA-F]+)$")
+        form = QFormLayout(self)
+        self.content_edit = QLineEdit(text)
+        self.format_combo = QComboBox()
+        for label, value in self.FORMATS:
+            self.format_combo.addItem(label, value)
+        self.width_spin = QSpinBox()
+        self.width_spin.setRange(1, 64)
+        self.width_spin.setValue(8)
+        self.value_edit = QLineEdit()
+        form.addRow("Content:", self.content_edit)
+        form.addRow("Format:", self.format_combo)
+        form.addRow("Width:", self.width_spin)
+        form.addRow("Value:", self.value_edit)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok |
+                                   QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        form.addRow(buttons)
+        self.format_combo.currentIndexChanged.connect(self._update_enabled)
+        self._update_enabled()
+        self._parse_literal(text)
+
+    def _update_enabled(self) -> None:
+        manual = self.format_combo.currentData() == ""
+        self.width_spin.setEnabled(not manual)
+        self.value_edit.setEnabled(not manual)
+
+    def _parse_literal(self, text: str) -> None:
+        match = self._literal.match(text.strip())
+        if match is None:
+            return
+        width, base, value = match.groups()
+        index = self.format_combo.findData(base)
+        if index >= 0:
+            self.format_combo.setCurrentIndex(index)
+            self.width_spin.setValue(max(1, min(64, int(width))))
+            self.value_edit.setText(value)
+            self._update_enabled()
+
+    def _formatted(self) -> str | None:
+        base = self.format_combo.currentData()
+        if not base:
+            return self.content_edit.text().strip()
+        value = self.value_edit.text().strip()
+        if not value:
+            return self.content_edit.text().strip()
+        if base == "b" and any(ch not in "01" for ch in value):
+            QMessageBox.warning(self, "Bus Value",
+                                "Binary value must contain only 0 and 1.")
+            return None
+        if base == "d" and not value.isdigit():
+            QMessageBox.warning(self, "Bus Value",
+                                "Decimal value must contain digits only.")
+            return None
+        if base == "h" and any(ch not in "0123456789abcdefABCDEF" for ch in value):
+            QMessageBox.warning(self, "Bus Value",
+                                "Hex value must contain 0-9/a-f only.")
+            return None
+        return f"{self.width_spin.value()}{base}'{value.lower()}"
+
+    def accept(self) -> None:
+        text = self._formatted()
+        if text is None:
+            return
+        self._result = text
+        super().accept()
+
+    def result_text(self) -> str:
+        return self._result
+
+    @classmethod
+    def ask(cls, parent, text: str = "") -> str | None:
+        dialog = cls(parent, text)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            return dialog.result_text()
+        return None
 
 
 class MeasurementDialog(QDialog):

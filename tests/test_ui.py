@@ -173,6 +173,68 @@ class UiTests(unittest.TestCase):
             self.assertEqual(arrow_pixel_offset(self.win.doc.arrows[0]),
                              (0.0, 0.0))
 
+    def test_selection_context_levels(self):
+        from edgeweaver.renderer import Selection
+
+        src = SAMPLES / "2-3-2.tim"
+        with tempfile.TemporaryDirectory() as td:
+            copy = Path(td) / "levels.tim"
+            shutil.copyfile(src, copy)
+            self.win.open_document(str(copy))
+            canvas = self.win.canvas
+
+            cases = [("1", 0, 3), ("0", 17, 19), ("Z", 5, 7), ("4", 8, 10)]
+            for char, start, end in cases:
+                canvas.selection = Selection(0, start, end)
+                canvas.apply_selection_char(char)
+                self.assertEqual(self.win.doc.rows[0].state[start:end + 1],
+                                 char * (end - start + 1))
+                self.assertEqual(self.win.undo_stack.undoText(),
+                                 "Set selection")
+                self.win.undo_stack.undo()
+
+    def test_bus_value_double_click_and_selection(self):
+        from unittest.mock import patch
+
+        from edgeweaver.dialogs import BusValueDialog
+        from edgeweaver.renderer import Selection
+
+        src = SAMPLES / "2-3-2.tim"
+        with tempfile.TemporaryDirectory() as td:
+            copy = Path(td) / "bus_values.tim"
+            shutil.copyfile(src, copy)
+            self.win.open_document(str(copy))
+            canvas = self.win.canvas
+            doc = self.win.doc
+            bus_index = next(i for i, row in enumerate(doc.rows)
+                             if doc.is_bus(row))
+            bus_name = doc.rows[bus_index].name
+
+            slot = 20
+            x = doc.slot_to_x(slot) + 5
+            y = doc.row_top(bus_index) + doc.signal_height / 2
+            with patch.object(BusValueDialog, "ask", return_value="8h'1a"):
+                QTest.mouseDClick(canvas, Qt.MouseButton.LeftButton,
+                                  pos=QPoint(int(x), int(y)))
+            values = self.win.doc.bus_values
+            self.assertEqual(len(values), 1)
+            self.assertEqual(values[0].row, bus_name)
+            self.assertEqual(values[0].text, "8h'1a")
+            self.assertEqual(self.win.undo_stack.undoText(), "Edit bus value")
+            self.win.undo_stack.undo()
+            self.assertEqual(len(self.win.doc.bus_values), 0)
+
+            canvas.selection = Selection(bus_index, 18, 20)
+            with patch.object(BusValueDialog, "ask", return_value="2b'11"):
+                canvas._edit_bus_value(bus_name, 18, 21, "4")
+            self.assertEqual(self.win.doc.bus_values[0].text, "2b'11")
+            self.assertEqual(self.win.undo_stack.undoText(), "Edit bus value")
+            canvas._clear_bus_value(bus_name, 18, 21)
+            self.assertEqual(len(self.win.doc.bus_values), 0)
+            self.assertEqual(self.win.undo_stack.undoText(), "Clear bus value")
+            self.win.undo_stack.undo()
+            self.assertEqual(len(self.win.doc.bus_values), 1)
+
     def test_measure_tool_creates_measurement(self):
         from unittest.mock import patch
 

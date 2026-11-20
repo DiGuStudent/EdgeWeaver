@@ -80,6 +80,9 @@ python3 -m edgeweaver.cli convert IN.tim --out OUT.emf --out OUT.png
      "dst_signal": "DATA", "dst_cycle": 8,
      "text": "tSU = 5", "suffix": "ns"}
   ],
+  "bus_values": [
+    {"row": "BUS", "start": 2, "end": 5, "text": "8h'1a"}
+  ],
   "flood": [
     {"row": 1, "start": 2, "end": 5}
   ]
@@ -100,6 +103,7 @@ python3 -m edgeweaver.cli convert IN.tim --out OUT.emf --out OUT.png
 | `arrows` | array | `[]` | 关系箭头 |
 | `timebreaks` | array | `[]` | 时间断裂 |
 | `measurements` | array | `[]` | 边沿间隔测量（竖线 + 双向箭头 + 文字） |
+| `bus_values` | array | `[]` | 总线区间内显示的文字覆盖 |
 | `flood` | array | `[]` | 高亮填充区间 |
 
 ### 2.2 `rows`
@@ -190,7 +194,27 @@ python3 -m edgeweaver.cli convert IN.tim --out OUT.emf --out OUT.png
 `y` 高于信号行时竖线向上伸长，低于时向下伸长；GUI 中可用 Select 工具上下拖动，
 或选中后按方向键 1 px（Shift 10 px）调整。
 
-### 2.7 `flood`
+### 2.7 `bus_values`
+
+```json
+{"row": "BUS", "start": 2, "end": 5, "text": "8h'1a"}
+```
+
+在总线行的指定槽区间内显示自定义文字（覆盖默认的单字符总线值）。
+`text` 可以手工填写任意内容，也可以使用 `2b'11`、`8d'10`、`8h'1a` 这类
+宽度/进制写法；GUI 对话框提供 `Manual` / `Binary` / `Decimal` / `Hex`
+下拉和 Width/Value 输入。
+
+若原总线已有值，覆盖区间会把原值从中间分开：边缘插入得到两段，中间插入
+得到“前段 + 插入 + 后段”三段，并在插入边界画分隔线；其他槽位不位移。
+
+| 字段 | 默认 | 说明 |
+|---|---|---|
+| `row` | 必填 | 必须是含 `2/3/4` 的总线行 |
+| `start`, `end` | 必填 | 槽区间，左闭右开 |
+| `text` | `""` | 显示文字；空字符串相当于清除覆盖 |
+
+### 2.8 `flood`
 
 ```json
 {"row": 1, "start": 2, "end": 5, "value": 1}
@@ -243,7 +267,7 @@ python3 -m edgeweaver.cli draw spec.json \
 {"ok": true,
  "document": {"rows": 4, "slots": 22, "slot_width": 30, "signal_height": 16,
               "name_width": 52, "content_width": 741, "content_height": 220,
-              "measurements": 1},
+              "measurements": 1, "bus_values": 1},
  "outputs": [{"path": "timing.svg", "format": "svg", "bytes": 17123}]}
 ```
 

@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from edgeweaver.model import (Document, Row, Label, Arrow, TimeBreak,
-                            Measurement, EDGE_MAGIC)  # noqa: E402
+                            BusValue, Measurement, EDGE_MAGIC)  # noqa: E402
 from edgeweaver.tim_format import load_tim, save_tim, dumps_tim  # noqa: E402
 from edgeweaver.exporters import export_csv, export_xml, import_csv, import_xml  # noqa: E402
 
@@ -153,6 +153,22 @@ class TimFormatTests(unittest.TestCase):
             self.assertEqual(again.rows[0].kind, "clock")
             self.assertEqual(again.rows[1].kind, "data")
             self.assertEqual(again.ints4[:3], [20, 30, 16])
+
+    def test_bus_value_extension_roundtrip(self):
+        doc = load_tim(SAMPLES / "2-3-2.tim")
+        bus = next(row for row in doc.rows if doc.is_bus(row))
+        doc.add_bus_value(BusValue(bus.name, 0, 3, "8h'1a"))
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "bus.tim"
+            save_tim(doc, path)
+            back = load_tim(path)
+            self.assertEqual(len(back.bus_values), 1)
+            value = back.bus_values[0]
+            self.assertEqual((value.row, value.start, value.end, value.text),
+                             (bus.name, 0, 3, "8h'1a"))
+            data = path.read_bytes()
+            save_tim(back, path)
+            self.assertEqual(path.read_bytes(), data)
 
     def test_measurement_extension_roundtrip(self):
         doc = load_tim(SAMPLES / "2-3-2.tim")

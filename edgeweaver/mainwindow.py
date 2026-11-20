@@ -188,7 +188,7 @@ class MainWindow(QMainWindow):
         self.opt_names = QAction("Show Signal &Names", self, checkable=True, checked=True)
         self.opt_names.toggled.connect(self._update_render_options)
         self.opt_divider = QAction("Show Name/&Waveform Divider", self,
-                                   checkable=True, checked=True)
+                                   checkable=True, checked=False)
         self.opt_divider.toggled.connect(self._update_render_options)
         self.opt_bus_values = QAction("Show Bus &Values", self, checkable=True, checked=True)
         self.opt_bus_values.toggled.connect(self._update_render_options)

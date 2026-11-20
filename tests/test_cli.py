@@ -43,6 +43,7 @@ SPEC = {
          "dst_cycle": 6, "style": "bezier", "offset": -10},
     ],
     "timebreaks": [{"signal": "DATA", "cycle": 8}],
+    "bus_values": [{"row": "BUS", "start": 2, "end": 5, "text": "8h'1a"}],
     "measurements": [
         {"src_signal": "CLK", "src_cycle": 2, "dst_signal": "DATA",
          "dst_cycle": 6, "text": "tSU = 5 ns"},
@@ -73,6 +74,7 @@ class CliTests(unittest.TestCase):
             self.assertEqual(payload["document"]["rows"], 4)
             self.assertEqual(payload["document"]["slots"], 16)
             self.assertEqual(payload["document"]["measurements"], 1)
+            self.assertEqual(payload["document"]["bus_values"], 1)
 
             doc = load_tim(tim)
             self.assertEqual(doc.slots, 16)
@@ -87,11 +89,13 @@ class CliTests(unittest.TestCase):
             self.assertEqual(doc.measurements[0].src_signal, "CLK")
             self.assertEqual(doc.measurements[0].dst_cycle, 6)
             self.assertEqual(doc.measurements[0].text, "tSU = 5 ns")
+            self.assertEqual(doc.bus_values[0].text, "8h'1a")
             self.assertTrue(all(doc.flood[2][2:6]))
 
             text = svg.read_text(encoding="utf-8")
             self.assertIn("CLK", text)
             self.assertIn("tSU", text)
+            self.assertIn("8h'1a", text)
             self.assertIn("<line", text)
 
     def test_other_outputs_and_transparency(self):

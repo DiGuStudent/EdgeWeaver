@@ -16,6 +16,7 @@ from pathlib import Path
 
 from .model import (
     Arrow,
+    BusValue,
     CLOCK_TAIL,
     DATA_TAIL,
     Document,
@@ -239,6 +240,45 @@ def _split_measurements(entries: list[str]):
     return kept, measurements
 
 
+# Bus text overrides live in list4 as ASCII JSON entries.
+BUS_VALUE_PREFIX = "EWB|"
+
+
+def _serialize_bus_value(value: BusValue) -> str:
+    payload = {
+        "v": 1,
+        "row": value.row,
+        "start": int(value.start),
+        "end": int(value.end),
+        "text": value.text,
+    }
+    return BUS_VALUE_PREFIX + json.dumps(payload, ensure_ascii=True,
+                                         separators=(",", ":"))
+
+
+def _parse_bus_value(record: str) -> BusValue | None:
+    if not record.startswith(BUS_VALUE_PREFIX):
+        return None
+    try:
+        payload = json.loads(record[len(BUS_VALUE_PREFIX):])
+        return BusValue(str(payload["row"]), int(payload["start"]),
+                        int(payload["end"]), str(payload.get("text", "")))
+    except (ValueError, KeyError, TypeError):
+        return None
+
+
+def _split_bus_values(entries: list[str]):
+    kept: list[str] = []
+    values: list[BusValue] = []
+    for entry in entries:
+        value = _parse_bus_value(entry)
+        if value is None:
+            kept.append(entry)
+        else:
+            values.append(value)
+    return kept, values
+
+
 def load_tim(path: str | Path) -> Document:
     path = Path(path)
     with path.open("rb") as f:
@@ -270,6 +310,7 @@ def load_tim(path: str | Path) -> Document:
     arrows = [a for a in (_parse_arrow(s) for s in lists[4]) if a is not None]
     timebreaks = [t for t in (_parse_timebreak(s) for s in lists[5]) if t is not None]
     list3, measurements = _split_measurements(list(lists[2]))
+    list4, bus_values = _split_bus_values(list(lists[3]))
 
     doc = Document(
         magic=magic,
@@ -278,10 +319,11 @@ def load_tim(path: str | Path) -> Document:
         rows=rows,
         labels=labels,
         list3=list3,
-        list4=list(lists[3]),
+        list4=list4,
         arrows=arrows,
         timebreaks=timebreaks,
         measurements=measurements,
+        bus_values=bus_values,
         ints9=ints9,
         cs=cs,
         ints2=ints2,
@@ -360,7 +402,8 @@ def dumps_tim(doc: Document) -> bytes:
             [_serialize_label(l) for l in doc.labels],
             list(doc.list3) + [_serialize_measurement(m)
                                for m in doc.measurements],
-            list(doc.list4),
+            list(doc.list4) + [_serialize_bus_value(v)
+                               for v in doc.bus_values],
             [_serialize_arrow(a) for a in doc.arrows],
             [_serialize_timebreak(t) for t in doc.timebreaks],
         ]

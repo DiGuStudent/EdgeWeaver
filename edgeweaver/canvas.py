@@ -6,9 +6,10 @@ from PyQt6.QtCore import Qt, QPointF, QRectF, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PyQt6.QtWidgets import QColorDialog, QInputDialog, QMenu, QWidget
 
-from .dialogs import MeasurementDialog
+from .dialogs import BusValueDialog, MeasurementDialog
 from .model import (
     Arrow,
+    BusValue,
     Document,
     LABEL_TAIL,
     Label,
@@ -806,6 +807,13 @@ class TimingCanvas(QWidget):
             self._edit_measurement(measure)
             event.accept()
             return
+        if row >= 0 and x >= self.doc.wave_x0:
+            run = self._bus_run_at(row, slot)
+            if run is not None:
+                start, end, ch = run
+                self._edit_bus_value(self.doc.rows[row].name, start, end, ch)
+                event.accept()
+                return
         if row >= 0 and x < self.doc.wave_x0:
             self.window.rename_row(row)
             event.accept()
@@ -845,6 +853,81 @@ class TimingCanvas(QWidget):
             self.window.push_edit("Clear cells", before, self.doc.clone())
             self.update()
 
+    def _bus_run_at(self, row_index: int, slot: int):
+        if not (0 <= row_index < len(self.doc.rows)):
+            return None
+        row = self.doc.rows[row_index]
+        if row.kind == "separator" or not self.doc.is_bus(row):
+            return None
+        state = row.padded_state()
+        if not (0 <= slot < self.doc.slots):
+            return None
+        ch = state[slot]
+        if ch not in "234":
+            return None
+        start = slot
+        while start > 0 and state[start - 1] == ch:
+            start -= 1
+        end = slot + 1
+        while end < self.doc.slots and state[end] == ch:
+            end += 1
+        return start, end, ch
+
+    def _edit_bus_value(self, row_name: str, start: int, end: int,
+                        current: str) -> None:
+        existing = next(
+            (value for value in self.doc.bus_values
+             if value.row == row_name and value.start < end
+             and value.end > start), None)
+        text = existing.text if existing is not None else current
+        result = BusValueDialog.ask(self, text)
+        if result is None or result == text:
+            return
+        before = self.doc.clone()
+        self.doc.bus_values = [
+            value for value in self.doc.bus_values
+            if not (value.row == row_name and value.start < end
+                    and value.end > start)]
+        if result.strip():
+            self.doc.bus_values.append(
+                BusValue(row_name, start, end, result.strip()))
+        self.doc.touch()
+        self.window.push_edit("Edit bus value", before, self.doc.clone())
+        self.update()
+
+    def _clear_bus_value(self, row_name: str, start: int, end: int) -> None:
+        before = self.doc.clone()
+        kept = [value for value in self.doc.bus_values
+                if not (value.row == row_name and value.start < end
+                        and value.end > start)]
+        if len(kept) == len(self.doc.bus_values):
+            return
+        self.doc.bus_values = kept
+        self.doc.touch()
+        self.window.push_edit("Clear bus value", before, self.doc.clone())
+        self.update()
+
+    def apply_selection_char(self, char: str) -> None:
+        """Set the selected slot range to 1/0/Z/4 (bus)."""
+        if self.selection is None:
+            return
+        sel = self.selection.normalized()
+        if not (0 <= sel.row < len(self.doc.rows)):
+            return
+        if self.doc.rows[sel.row].kind == "separator":
+            self.window.status_message("Cannot set separator cells")
+            return
+        before = self.doc.clone()
+        if self.doc.set_cells(sel.row, sel.start, sel.end, char):
+            self.window.push_edit("Set selection", before, self.doc.clone())
+            # push_edit re-applies the document and clears the selection.
+            self.selection = Selection(sel.row, sel.start, sel.end)
+            self.window.status_message(
+                f"Set slots {sel.start}..{sel.end} to {char}")
+            self.update()
+        else:
+            self.window.status_message("Selection already has that value")
+
     def _context_menu(self, event):
         row, slot, x, y = self._pmap(event)
         idx = self._arrow_at(x, y)
@@ -869,6 +952,33 @@ class TimingCanvas(QWidget):
                            lambda: self._choose_measure_color(measure))
             menu.addAction("Delete Measurement",
                            lambda: self._delete_measurement(measure))
+            menu.addSeparator()
+        if (idx is None and measure is None and self.selection is not None
+                and row >= 0 and self.selection.normalized().row == row):
+            sel = self.selection.normalized()
+            row_obj = self.doc.rows[row]
+            if row_obj.kind != "separator" and self.doc.is_bus(row_obj):
+                state = row_obj.padded_state()
+                current = state[sel.start] if state[sel.start] in "234" else ""
+                menu.addAction(
+                    "Edit Bus Value...",
+                    lambda: self._edit_bus_value(row_obj.name, sel.start,
+                                                 sel.end + 1, current))
+                has_override = any(
+                    value.row == row_obj.name and value.start < sel.end + 1
+                    and value.end > sel.start
+                    for value in self.doc.bus_values)
+                if has_override:
+                    menu.addAction(
+                        "Clear Bus Value",
+                        lambda: self._clear_bus_value(row_obj.name, sel.start,
+                                                      sel.end + 1))
+                menu.addSeparator()
+            sub = menu.addMenu(f"Set Selection ({sel.start}..{sel.end})")
+            sub.addAction("High (1)", lambda: self.apply_selection_char("1"))
+            sub.addAction("Low (0)", lambda: self.apply_selection_char("0"))
+            sub.addAction("High-Z (Z)", lambda: self.apply_selection_char("Z"))
+            sub.addAction("Bus (4)", lambda: self.apply_selection_char("4"))
             menu.addSeparator()
         if row < 0:
             menu.addAction("Document Settings...", self.window.document_settings)

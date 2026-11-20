@@ -25,6 +25,7 @@ from .model import (  # noqa: E402
     LABEL_TAIL,
     SEPARATOR_REST,
     Arrow,
+    BusValue,
     Document,
     Label,
     Measurement,
@@ -265,6 +266,26 @@ def build_document(spec: dict) -> Document:
             src_signal, src_cycle, dst_signal, dst_cycle,
             str(item.get("text", "")), y, dx, color, suffix))
 
+    for i, item in enumerate(spec.get("bus_values", [])):
+        if not isinstance(item, dict):
+            raise SpecError(f"bus_values[{i}] must be an object")
+        where = f"bus_values[{i}]"
+        try:
+            row_name = str(item["row"])
+            start = int(item["start"])
+            end = int(item["end"])
+            text = str(item.get("text", ""))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise SpecError(f"{where}: row, start, end and text are required") from exc
+        row_index = doc.find_row(row_name)
+        if row_index < 0:
+            raise SpecError(f"{where}: unknown row {row_name!r}")
+        if doc.rows[row_index].kind == "separator" or not doc.is_bus(doc.rows[row_index]):
+            raise SpecError(f"{where}: row {row_name!r} is not a bus row")
+        if not (0 <= start < end <= doc.slots):
+            raise SpecError(f"{where}: needs 0 <= start < end <= {doc.slots}")
+        doc.bus_values.append(BusValue(row_name, start, end, text))
+
     doc.ensure_arrays()
     for i, item in enumerate(spec.get("flood", [])):
         if not isinstance(item, dict):
@@ -381,6 +402,7 @@ def _run(args) -> int:
                 "content_width": doc.content_width,
                 "content_height": doc.content_height,
                 "measurements": len(doc.measurements),
+                "bus_values": len(doc.bus_values),
             },
             "outputs": results,
         }
