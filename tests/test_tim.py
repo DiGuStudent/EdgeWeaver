@@ -157,8 +157,8 @@ class TimFormatTests(unittest.TestCase):
     def test_measurement_extension_roundtrip(self):
         doc = load_tim(SAMPLES / "2-3-2.tim")
         doc.add_measurement(Measurement("CEB", 3, "MC", 7,
-                                        "建立时间 = 1.5 us",
-                                        12, 2.0, "#c00000"))
+                                        "建立时间 = 1.5",
+                                        12, 2.0, "#c00000", "µs"))
         doc.list3.append("KEEP-ME")
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "measure.tim"
@@ -169,7 +169,8 @@ class TimFormatTests(unittest.TestCase):
             self.assertEqual((measurement.src_signal, measurement.src_cycle,
                               measurement.dst_signal, measurement.dst_cycle),
                              ("CEB", 3, "MC", 7))
-            self.assertEqual(measurement.text, "建立时间 = 1.5 us")
+            self.assertEqual(measurement.text, "建立时间 = 1.5")
+            self.assertEqual(measurement.suffix, "µs")
             self.assertEqual(measurement.y, 12)
             self.assertEqual(measurement.dx, 2.0)
             self.assertEqual(measurement.color, "#c00000")

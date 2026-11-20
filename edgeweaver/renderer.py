@@ -479,19 +479,45 @@ def measurement_geometry(doc: Document,
                                min(anchor_top, y), max(anchor_bottom, y))
 
 
+def measurement_text(measurement: Measurement) -> str:
+    text = (measurement.text or "").strip()
+    suffix = (measurement.suffix or "").strip()
+    if suffix:
+        return f"{text} {suffix}".strip()
+    return text
+
+
+def _measurement_text_width(text: str) -> float:
+    """Rough 9 pt text width; CJK glyphs are about 1.4x ASCII."""
+    return sum(9.0 if ord(ch) > 0x2E7F else 6.5 for ch in text)
+
+
 def draw_measurement(b, measurement: Measurement, doc: Document):
-    """Two vertical edge guides joined by a double-headed arrow and text."""
+    """Dashed guides with an adaptive double-headed dimension arrow."""
     geom = measurement_geometry(doc, measurement)
-    if geom is None or abs(geom.x2 - geom.x1) < 1.0:
+    span = 0.0 if geom is None else abs(geom.x2 - geom.x1)
+    if geom is None or span < 1.0:
         return
     color = measurement.color or MEASURE_COLOR
-    b.line(geom.x1, geom.top, geom.x1, geom.bottom, color=color, width=1.0)
-    b.line(geom.x2, geom.top, geom.x2, geom.bottom, color=color, width=1.0)
+    # Dashed extension lines; the dimension line itself stays solid.
+    b.line(geom.x1, geom.top, geom.x1, geom.bottom,
+           color=color, width=1.0, dash="dash")
+    b.line(geom.x2, geom.top, geom.x2, geom.bottom,
+           color=color, width=1.0, dash="dash")
     b.line(geom.x1, geom.y, geom.x2, geom.y, color=color, width=1.0)
-    _arrow_head(b, (geom.x1, geom.y), (1.0, 0.0), color=color, size=6.0)
-    _arrow_head(b, (geom.x2, geom.y), (-1.0, 0.0), color=color, size=6.0)
-    if measurement.text:
-        b.text((geom.x1 + geom.x2) / 2.0, geom.y - 5.0, measurement.text,
+    label = measurement_text(measurement)
+    head = 6.0
+    needed = _measurement_text_width(label) + 2 * head + (8.0 if label else 4.0)
+    if span >= needed:
+        # Room inside: tips on the guides, triangles inside, pointing outward.
+        _arrow_head(b, (geom.x1, geom.y), (-1.0, 0.0), color=color, size=head)
+        _arrow_head(b, (geom.x2, geom.y), (1.0, 0.0), color=color, size=head)
+    else:
+        # Too narrow: tips on the guides, triangles outside, pointing inward.
+        _arrow_head(b, (geom.x1, geom.y), (1.0, 0.0), color=color, size=head)
+        _arrow_head(b, (geom.x2, geom.y), (-1.0, 0.0), color=color, size=head)
+    if label:
+        b.text((geom.x1 + geom.x2) / 2.0, geom.y - 5.0, label,
                size=9.0, family="Arial", color=color, anchor="middle")
 
 

@@ -78,7 +78,7 @@ python3 -m edgeweaver.cli convert IN.tim --out OUT.emf --out OUT.png
   "measurements": [
     {"src_signal": "CLK", "src_cycle": 2,
      "dst_signal": "DATA", "dst_cycle": 8,
-     "text": "tSU = 5 ns"}
+     "text": "tSU = 5", "suffix": "ns"}
   ],
   "flood": [
     {"row": 1, "start": 2, "end": 5}
@@ -168,18 +168,21 @@ python3 -m edgeweaver.cli convert IN.tim --out OUT.emf --out OUT.png
 ```json
 {"src_signal": "CLK", "src_cycle": 3,
  "dst_signal": "DATA", "dst_cycle": 9,
- "text": "tSU = 5 ns", "y": 20, "dx": 0, "color": "#000000"}
+ "text": "tSU = 5", "suffix": "ns",
+ "y": 20, "dx": 0, "color": "#000000"}
 ```
 
-在 A、B 两个边沿之间画两条竖线、一条双向水平箭头，并在箭头上方写文字。
-竖线覆盖两条信号行（同一行时覆盖该行）；文字支持中文、英文、数字和
-`us`/`ms`/`ns` 等单位。
+在 A、B 两个边沿之间画两条**虚线**竖线、一条双向水平箭头：空间足够时箭头在
+区间内侧、尖端落在刻度线上朝外；区间过窄时箭头移到刻度线外侧、尖端朝内。
+箭头上方写文字，竖线覆盖两条信号行（同一行时覆盖该行）；文字支持中文、
+英文、数字，单位由 `suffix` 下拉/字段指定。
 
 | 字段 | 默认 | 说明 |
 |---|---|---|
 | `src_signal`, `dst_signal` | 必填 | 行名（分隔行不可用） |
 | `src_cycle`, `dst_cycle` | 必填 | 0..`slots` 的边界索引；两个 cycle 不能相同 |
 | `text` | `""` | 箭头上方文字；可含空格、`.`、中文 |
+| `suffix` | `""` | 单位后缀：`none`/`""`、`ns`、`µs`、`ms`；也接受 `us` 并规范为 `µs`；显示为 `text + 空格 + suffix` |
 | `y` | 自动 | 水平刻度线的绝对 y（px）；省略时位于两行中点；建议 >= 16 以免文字超出画布 |
 | `dx` | `0` | 整体水平像素偏移 |
 | `color` | `#000000` | 竖线/箭头/文字颜色；任意 CSS/QColor 名称或 `#RRGGBB` |
@@ -296,7 +299,7 @@ python3 -m edgeweaver.cli draw spec.json --out demo.svg --out demo.emf
   "measurements": [
     {"src_signal": "CLK", "src_cycle": 3,
      "dst_signal": "DATA", "dst_cycle": 9,
-     "text": "tSU = 5 ns"}
+     "text": "tSU = 5", "suffix": "ns"}
   ],
   "flood": [{"row": "ADDR", "start": 2, "end": 6}]
 }

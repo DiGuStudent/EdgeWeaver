@@ -176,7 +176,7 @@ class UiTests(unittest.TestCase):
     def test_measure_tool_creates_measurement(self):
         from unittest.mock import patch
 
-        from PyQt6.QtWidgets import QInputDialog
+        from edgeweaver.dialogs import MeasurementDialog
 
         src = SAMPLES / "2-3-2.tim"
         with tempfile.TemporaryDirectory() as td:
@@ -187,8 +187,8 @@ class UiTests(unittest.TestCase):
             doc = self.win.doc
             self.win.set_tool("measure")
 
-            with patch.object(QInputDialog, "getText",
-                              return_value=("建立时间 = 5 ns", True)):
+            with patch.object(MeasurementDialog, "ask",
+                              return_value=("建立时间 = 5", "ns")):
                 a = QPoint(int(doc.cycle_to_x(3)),
                            int(doc.row_top(0) + doc.signal_height / 2))
                 b = QPoint(int(doc.cycle_to_x(6)),
@@ -202,7 +202,8 @@ class UiTests(unittest.TestCase):
             self.assertEqual(measurements[0].src_cycle, 3)
             self.assertEqual(measurements[0].dst_signal, doc.rows[1].name)
             self.assertEqual(measurements[0].dst_cycle, 6)
-            self.assertEqual(measurements[0].text, "建立时间 = 5 ns")
+            self.assertEqual(measurements[0].text, "建立时间 = 5")
+            self.assertEqual(measurements[0].suffix, "ns")
             self.assertEqual(self.win.undo_stack.undoText(), "Add measurement")
             self.win.undo_stack.undo()
             self.assertEqual(len(self.win.doc.measurements), 0)

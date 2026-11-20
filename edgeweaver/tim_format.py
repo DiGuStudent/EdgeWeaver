@@ -193,6 +193,7 @@ def _serialize_measurement(measurement: Measurement) -> str:
         "dst": measurement.dst_signal,
         "dc": int(measurement.dst_cycle),
         "text": measurement.text,
+        "suffix": measurement.suffix,
         "y": measurement.y,
         "dx": measurement.dx,
         "color": measurement.color,
@@ -207,13 +208,21 @@ def _parse_measurement(record: str) -> Measurement | None:
     try:
         payload = json.loads(record[len(MEASURE_PREFIX):])
         y = payload.get("y")
+        suffix = str(payload.get("suffix", "")).strip()
+        if suffix.lower() in ("none", "null"):
+            suffix = ""
+        if suffix in ("us", "μs", "µs"):
+            suffix = "µs"          # U+00B5 MICRO SIGN
+        if suffix not in ("", "ns", "µs", "ms"):
+            suffix = ""
         return Measurement(
             str(payload["src"]), int(payload["sc"]),
             str(payload["dst"]), int(payload["dc"]),
             str(payload.get("text", "")),
             None if y is None else int(y),
             float(payload.get("dx", 0.0)),
-            str(payload.get("color", "#000000")))
+            str(payload.get("color", "#000000")),
+            suffix)
     except (ValueError, KeyError, TypeError):
         return None
 

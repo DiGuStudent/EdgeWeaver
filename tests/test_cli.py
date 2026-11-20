@@ -120,7 +120,8 @@ class CliTests(unittest.TestCase):
     def test_measurement_style_fields(self):
         spec = json.loads(json.dumps(SPEC))
         spec["measurements"][0].update({
-            "text": "建立时间 = 1.5 us", "y": 8, "dx": 3, "color": "#c00000"})
+            "text": "建立时间 = 1.5", "suffix": "us",
+            "y": 8, "dx": 3, "color": "#c00000"})
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "spec.json"
             path.write_text(json.dumps(spec, ensure_ascii=False), encoding="utf-8")
@@ -130,12 +131,13 @@ class CliTests(unittest.TestCase):
                                   "--out", str(svg)])
             self.assertEqual(code, 0, err)
             measurement = load_tim(tim).measurements[0]
-            self.assertEqual(measurement.text, "建立时间 = 1.5 us")
+            self.assertEqual(measurement.text, "建立时间 = 1.5")
+            self.assertEqual(measurement.suffix, "µs")
             self.assertEqual(measurement.y, 8)
             self.assertEqual(measurement.dx, 3.0)
             self.assertEqual(measurement.color, "#c00000")
             text = svg.read_text(encoding="utf-8")
-            self.assertIn("建立时间 = 1.5 us", text)
+            self.assertIn("建立时间 = 1.5 µs", text)
             self.assertIn('fill="#c00000"', text)
 
     def test_convert_existing_tim(self):

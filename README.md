@@ -18,9 +18,11 @@ EdgeWeaver 是一个 Linux 原生的时序图编辑器，读写 legacy `.tim` �
   `Signal/Clock Properties` 还可设置时钟周期、占空比、起始电平。
 - **标注**：文本标签、信号间关系箭头、时间断裂（Time Break）；
   `Edit → Annotations...` 可集中查看和删除。
-- **边沿间隔测量**：选择两个边沿，画两条竖线和一条双向水平箭头，箭头上方可填写
-  中文/英文/数字/单位（`us`、`ms`、`ns` 等）。用 Select 工具上下拖动刻度线可
-  调整高度（竖线随之伸缩），选中后方向键 1 px / Shift+方向键 10 px 微调；
+- **边沿间隔测量**：选择两个边沿，画两条**虚线**竖线和一条双向水平箭头
+  （空间足够时箭头在区间内侧、尖端落在刻度线上朝外；区间过窄时箭头移到刻度线
+  外侧、尖端朝内），箭头上方可填写文字，并可下拉选择单位后缀
+  `none` / `ns` / `µs` / `ms`。用 Select 工具上下拖动刻度线可调整高度
+  （竖线随之伸缩），选中后方向键 1 px / Shift+方向键 10 px 微调；
   右键可修改颜色（默认黑色）、文字，`Del` 删除；也可在
   `Edit → Annotations → Measurements` 中集中管理。
 - **箭头编辑**：选择工具下点击箭头即可选中；拖两端改信号/槽位，拖弯曲手柄改弧度，
@@ -172,9 +174,10 @@ NAME\t\t\t\t\tSEP_0.<separator fields>
   `0.43.1.0.0.0.10.-100.EWPIX.` 表示箭头整体右移 1 px、上移 10 px。
   没有 `EWPIX` 标记的箭头记录保持原样，按周期/行吸附渲染。
 - **边沿间隔测量**：存放在第 3 个辅助字符串表（list3）中，每条以
-  `EWM|` 开头、后接 ASCII JSON（`v/src/sc/dst/dc/text/y/dx/color`）。
-  `y` 为刻度线绝对高度（缺省=两行中点），`dx` 为水平偏移，`color` 默认
-  `#000000`。不含 `EWM|` 的 list3 条目原样保留；文件未修改时仍走原始字节回写。
+  `EWM|` 开头、后接 ASCII JSON（`v/src/sc/dst/dc/text/suffix/y/dx/color`）。
+  `suffix` 为空或 `ns`/`µs`（也接受 `us`）/`ms`；`y` 为刻度线绝对高度（缺省=两行中点）；
+  `dx` 为水平偏移；`color` 默认 `#000000`。不含 `EWM|` 的 list3 条目原样
+  保留；文件未修改时仍走原始字节回写。
 
 这些扩展不会改变原有样本的字节级 round-trip；其他工具可能忽略或丢弃它们。
 
@@ -184,7 +187,7 @@ NAME\t\t\t\t\tSEP_0.<separator fields>
 QT_QPA_PLATFORM=offscreen /usr/bin/python3 -m unittest discover -s tests -v
 ```
 
-当前 40 个测试全部通过，包括：
+当前 41 个测试全部通过，包括：
 
 - 4 个真实 `.tim` 的字节级 round-trip；
 - EMF 记录结构、头部帧/设备尺寸、Unicode 文本偏移与字体记录；

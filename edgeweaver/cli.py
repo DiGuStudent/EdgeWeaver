@@ -254,9 +254,16 @@ def build_document(spec: dict) -> Document:
 
         if not QColor(color).isValid():
             raise SpecError(f"{where}: invalid color {color!r}")
+        suffix = str(item.get("suffix", "")).strip()
+        if suffix.lower() in ("none", "null"):
+            suffix = ""
+        if suffix in ("us", "μs", "µs"):
+            suffix = "µs"          # U+00B5 MICRO SIGN
+        if suffix not in ("", "ns", "µs", "ms"):
+            raise SpecError(f"{where}: suffix must be none, ns, µs (us) or ms")
         doc.measurements.append(Measurement(
             src_signal, src_cycle, dst_signal, dst_cycle,
-            str(item.get("text", "")), y, dx, color))
+            str(item.get("text", "")), y, dx, color, suffix))
 
     doc.ensure_arrays()
     for i, item in enumerate(spec.get("flood", [])):

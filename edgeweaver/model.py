@@ -181,6 +181,7 @@ class Measurement:
     y: int | None = None          # dimension-line Y; None = middle of the rows
     dx: float = 0.0               # horizontal pixel offset
     color: str = "#000000"
+    suffix: str = ""              # "", "ns", "µs" (U+00B5) or "ms"
     raw: str | None = None
 
     def clone(self) -> "Measurement":

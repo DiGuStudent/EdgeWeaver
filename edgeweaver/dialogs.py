@@ -10,7 +10,6 @@ from PyQt6.QtWidgets import (
     QDialogButtonBox,
     QFormLayout,
     QHBoxLayout,
-    QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -190,8 +189,9 @@ class AnnotationsDialog(QDialog):
                 f"{arrow.dst_signal}[{arrow.dst_cycle}]   type {arrow.kind}")
         self.measure_list.clear()
         for measurement in self.doc.measurements:
+            label = f"{measurement.text} {measurement.suffix}".strip()
             self.measure_list.addItem(
-                f"{measurement.text!r}   {measurement.src_signal}"
+                f"{label!r}   {measurement.src_signal}"
                 f"[{measurement.src_cycle}] -> {measurement.dst_signal}"
                 f"[{measurement.dst_cycle}]")
         self.break_list.clear()
@@ -229,10 +229,14 @@ class AnnotationsDialog(QDialog):
         if not 0 <= row < len(self.doc.measurements):
             return
         measurement = self.doc.measurements[row]
-        text, ok = QInputDialog.getText(
-            self, "Measurement Text", "Text:", text=measurement.text)
-        if ok and text != measurement.text:
+        result = MeasurementDialog.ask(self, measurement.text,
+                                       measurement.suffix)
+        if result is None:
+            return
+        text, suffix = result
+        if (text, suffix) != (measurement.text, measurement.suffix):
             measurement.text = text
+            measurement.suffix = suffix
             self._deleted()
 
     def _color_measure(self):
@@ -255,6 +259,41 @@ class AnnotationsDialog(QDialog):
             self.measure_list.setCurrentRow(
                 min(row, len(self.doc.measurements) - 1))
             self._deleted()
+
+
+class MeasurementDialog(QDialog):
+    """Edit a measurement's text and unit suffix."""
+
+    SUFFIXES = (("none", ""), ("ns", "ns"), ("µs", "µs"), ("ms", "ms"))
+
+    def __init__(self, parent=None, text: str = "", suffix: str = ""):
+        super().__init__(parent)
+        self.setWindowTitle("Measurement")
+        form = QFormLayout(self)
+        self.text_edit = QLineEdit(text)
+        self.suffix_combo = QComboBox()
+        for label, value in self.SUFFIXES:
+            self.suffix_combo.addItem(label, value)
+        index = self.suffix_combo.findData(suffix)
+        self.suffix_combo.setCurrentIndex(max(0, index))
+        form.addRow("Text:", self.text_edit)
+        form.addRow("Suffix:", self.suffix_combo)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok |
+                                   QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        form.addRow(buttons)
+
+    def values(self) -> tuple[str, str]:
+        return self.text_edit.text().strip(), self.suffix_combo.currentData()
+
+    @classmethod
+    def ask(cls, parent, text: str = "",
+            suffix: str = "") -> tuple[str, str] | None:
+        dialog = cls(parent, text, suffix)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            return dialog.values()
+        return None
 
 
 class ArrowDialog(QDialog):

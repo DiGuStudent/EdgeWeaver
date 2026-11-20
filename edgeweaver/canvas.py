@@ -6,6 +6,7 @@ from PyQt6.QtCore import Qt, QPointF, QRectF, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PyQt6.QtWidgets import QColorDialog, QInputDialog, QMenu, QWidget
 
+from .dialogs import MeasurementDialog
 from .model import (
     Arrow,
     Document,
@@ -29,6 +30,7 @@ from .renderer import (
     arrow_style,
     arrow_style_name,
     measurement_geometry,
+    measurement_text,
     render_document,
 )
 
@@ -187,9 +189,10 @@ class TimingCanvas(QWidget):
             for gx in (geom.x1, geom.x2):
                 if abs(x - gx) <= 4 and geom.top - 4 <= y <= geom.bottom + 4:
                     return i
-            if measurement.text:
+            label = measurement_text(measurement)
+            if label:
                 cx = (geom.x1 + geom.x2) / 2.0
-                half = max(8.0, 6.5 * len(measurement.text) / 2.0)
+                half = max(8.0, 6.5 * len(label) / 2.0)
                 if abs(y - (geom.y - 11.0)) <= 9 and abs(x - cx) <= half:
                     return i
         return None
@@ -198,12 +201,14 @@ class TimingCanvas(QWidget):
         if not (0 <= index < len(self.doc.measurements)):
             return
         measurement = self.doc.measurements[index]
-        text, ok = QInputDialog.getText(
-            self, "Measurement Text", "Text:", text=measurement.text)
-        if not ok or text == measurement.text:
+        result = MeasurementDialog.ask(self, measurement.text,
+                                       measurement.suffix)
+        if result is None or result == (measurement.text, measurement.suffix):
             return
+        text, suffix = result
         before = self.doc.clone()
         measurement.text = text
+        measurement.suffix = suffix
         self.doc.touch()
         self.window.push_edit("Edit measurement", before, self.doc.clone())
         self.update()
@@ -619,16 +624,17 @@ class TimingCanvas(QWidget):
             else:
                 sr, sc = self._measure_src
                 if cycle != sc:
-                    before = self.doc.clone()
-                    src_name = self.doc.rows[sr].name
-                    dst_name = self.doc.rows[row].name
-                    text, ok = QInputDialog.getText(
-                        self, "Measurement",
-                        "Text (e.g. tSU = 5 ns):")
-                    self.doc.add_measurement(Measurement(
-                        src_name, sc, dst_name, cycle, text if ok else ""))
-                    self.window.push_edit("Add measurement", before,
-                                          self.doc.clone())
+                    result = MeasurementDialog.ask(self)
+                    if result is not None:
+                        text, suffix = result
+                        before = self.doc.clone()
+                        src_name = self.doc.rows[sr].name
+                        dst_name = self.doc.rows[row].name
+                        self.doc.add_measurement(Measurement(
+                            src_name, sc, dst_name, cycle, text,
+                            suffix=suffix))
+                        self.window.push_edit("Add measurement", before,
+                                              self.doc.clone())
                 else:
                     self.window.status_message(
                         "The two edges are at the same time; pick another edge")

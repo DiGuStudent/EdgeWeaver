@@ -118,6 +118,10 @@ class RenderTests(unittest.TestCase):
         bottom = max(doc.row_top(0), doc.row_top(1)) + doc.signal_height
         mid = (top + bottom) / 2.0
 
+        verticals = [(a, b, c, d, kw) for a, b, c, d, kw in backend.lines
+                     if abs(a - c) < 0.01 and abs(b - d) > 10]
+        self.assertEqual(len(verticals), 2)
+        self.assertTrue(all(kw.get("dash") == "dash" for *_, kw in verticals))
         self.assertTrue(any(
             abs(a - x1) < 0.01 and abs(c - x1) < 0.01
             and abs(b - top) < 0.01 and abs(d - bottom) < 0.01
@@ -127,9 +131,45 @@ class RenderTests(unittest.TestCase):
             and abs(b - mid) < 0.01 and abs(d - mid) < 0.01
             for a, b, c, d, _ in backend.lines))
         self.assertEqual(len(backend.polygons), 2)      # double-headed arrow
+        # wide interval: tips on the guides, bodies inside -> outward
+        left, right = backend.polygons
+        self.assertAlmostEqual(left[0][0][0], x1)
+        self.assertAlmostEqual(right[0][0][0], x2)
+        self.assertGreater(left[0][1][0], x1)           # body inside
+        self.assertLess(right[0][1][0], x2)
         self.assertEqual(len(backend.texts), 1)
         self.assertEqual(backend.texts[0][2], "tSU = 5 ns")
         self.assertAlmostEqual(backend.texts[0][0], (x1 + x2) / 2.0)
+
+    def test_measurement_narrow_interval_arrows_outside(self):
+        from edgeweaver.model import Measurement
+        from edgeweaver.renderer import draw_measurement
+
+        class Backend:
+            def __init__(self):
+                self.polygons = []
+
+            def line(self, *args, **kwargs):
+                pass
+
+            def polygon(self, points, **kw):
+                self.polygons.append(points)
+
+            def text(self, *args, **kwargs):
+                pass
+
+        doc = load_tim(SAMPLES / "2-3-2.tim")
+        # 1 slot wide, with text that does not fit inside
+        measurement = Measurement("CEB", 3, "MC", 4, "t = 5 µs")
+        backend = Backend()
+        draw_measurement(backend, measurement, doc)
+        x1 = doc.cycle_to_x(3)
+        x2 = doc.cycle_to_x(4)
+        left, right = backend.polygons
+        self.assertAlmostEqual(left[0][0], x1)
+        self.assertAlmostEqual(right[0][0], x2)
+        self.assertLess(left[1][0], x1)                 # body outside
+        self.assertGreater(right[1][0], x2)
 
     def test_measurement_height_color_and_dx(self):
         from edgeweaver.model import Measurement
@@ -151,8 +191,8 @@ class RenderTests(unittest.TestCase):
                 self.texts.append((x, y, s, kw))
 
         doc = load_tim(SAMPLES / "2-3-2.tim")
-        measurement = Measurement("CEB", 3, "MC", 7, "t = 5 ns",
-                                  y=8, dx=5, color="#c00000")
+        measurement = Measurement("CEB", 3, "MC", 7, "t = 5",
+                                  y=8, dx=5, color="#c00000", suffix="µs")
         geom = measurement_geometry(doc, measurement)
         self.assertEqual(geom.y, 8)
         self.assertEqual(geom.top, 8)                   # guide grows upward
@@ -165,6 +205,7 @@ class RenderTests(unittest.TestCase):
         self.assertTrue(backend.lines)
         for *_, kw in backend.lines:
             self.assertEqual(kw.get("color"), "#c00000")
+        self.assertEqual(backend.texts[0][2], "t = 5 µs")
         self.assertEqual(backend.texts[0][3].get("color"), "#c00000")
         self.assertAlmostEqual(backend.texts[0][1], 8 - 5)
 
