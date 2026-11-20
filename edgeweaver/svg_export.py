@@ -1,4 +1,4 @@
-"""Minimal SVG backend (no QtSvg dependency) for EdgeWeaver exports."""
+"""Minimal SVG backend for EdgeWeaver exports."""
 
 from __future__ import annotations
 
@@ -63,7 +63,7 @@ class SvgBackend:
     def document(self) -> str:
         head = [
             '<?xml version="1.0" encoding="UTF-8" standalone="no"?>',
-            '<!-- Created with EdgeWeaver (clean-room reimplementation) -->',
+            '<!-- Created with EdgeWeaver -->',
             f'<svg xmlns="http://www.w3.org/2000/svg" version="1.0" '
             f'width="{_n(self.width)}" height="{_n(self.height)}" '
             f'viewBox="0 0 {_n(self.width)} {_n(self.height)}">',

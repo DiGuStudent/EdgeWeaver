@@ -72,6 +72,102 @@ class RenderTests(unittest.TestCase):
 
 
 
+    def test_svg_transparent_background(self):
+        from edgeweaver.renderer import RenderOptions
+
+        doc = load_tim(SAMPLES / "2-3-2.tim")
+        with tempfile.TemporaryDirectory() as td:
+            opaque = Path(td) / "opaque.svg"
+            clear = Path(td) / "clear.svg"
+            export_svg(doc, opaque)
+            export_svg(doc, clear, RenderOptions(background=False))
+            opaque_text = opaque.read_text(encoding="utf-8")
+            clear_text = clear.read_text(encoding="utf-8")
+        self.assertIn('fill="#ffffff"', opaque_text)
+        self.assertNotIn('fill="#ffffff"', clear_text)
+        self.assertIn("<svg", clear_text)
+        self.assertIn("<line", clear_text)
+
+    def test_measurement_geometry_and_text(self):
+        from edgeweaver.model import Measurement
+        from edgeweaver.renderer import draw_measurement
+
+        class Backend:
+            def __init__(self):
+                self.lines = []
+                self.polygons = []
+                self.texts = []
+
+            def line(self, x1, y1, x2, y2, **kw):
+                self.lines.append((x1, y1, x2, y2, kw))
+
+            def polygon(self, points, **kw):
+                self.polygons.append((points, kw))
+
+            def text(self, x, y, s, **kw):
+                self.texts.append((x, y, s, kw))
+
+        doc = load_tim(SAMPLES / "2-3-2.tim")
+        measurement = Measurement("CEB", 3, "MC", 7, "tSU = 5 ns")
+        backend = Backend()
+        draw_measurement(backend, measurement, doc)
+
+        x1 = doc.cycle_to_x(3)
+        x2 = doc.cycle_to_x(7)
+        top = min(doc.row_top(0), doc.row_top(1))
+        bottom = max(doc.row_top(0), doc.row_top(1)) + doc.signal_height
+        mid = (top + bottom) / 2.0
+
+        self.assertTrue(any(
+            abs(a - x1) < 0.01 and abs(c - x1) < 0.01
+            and abs(b - top) < 0.01 and abs(d - bottom) < 0.01
+            for a, b, c, d, _ in backend.lines))
+        self.assertTrue(any(
+            abs(a - x1) < 0.01 and abs(c - x2) < 0.01
+            and abs(b - mid) < 0.01 and abs(d - mid) < 0.01
+            for a, b, c, d, _ in backend.lines))
+        self.assertEqual(len(backend.polygons), 2)      # double-headed arrow
+        self.assertEqual(len(backend.texts), 1)
+        self.assertEqual(backend.texts[0][2], "tSU = 5 ns")
+        self.assertAlmostEqual(backend.texts[0][0], (x1 + x2) / 2.0)
+
+    def test_measurement_height_color_and_dx(self):
+        from edgeweaver.model import Measurement
+        from edgeweaver.renderer import draw_measurement, measurement_geometry
+
+        class Backend:
+            def __init__(self):
+                self.lines = []
+                self.polygons = []
+                self.texts = []
+
+            def line(self, x1, y1, x2, y2, **kw):
+                self.lines.append((x1, y1, x2, y2, kw))
+
+            def polygon(self, points, **kw):
+                self.polygons.append((points, kw))
+
+            def text(self, x, y, s, **kw):
+                self.texts.append((x, y, s, kw))
+
+        doc = load_tim(SAMPLES / "2-3-2.tim")
+        measurement = Measurement("CEB", 3, "MC", 7, "t = 5 ns",
+                                  y=8, dx=5, color="#c00000")
+        geom = measurement_geometry(doc, measurement)
+        self.assertEqual(geom.y, 8)
+        self.assertEqual(geom.top, 8)                   # guide grows upward
+        self.assertEqual(geom.bottom,
+                         doc.row_top(1) + doc.signal_height)
+        self.assertAlmostEqual(geom.x1, doc.cycle_to_x(3) + 5)
+
+        backend = Backend()
+        draw_measurement(backend, measurement, doc)
+        self.assertTrue(backend.lines)
+        for *_, kw in backend.lines:
+            self.assertEqual(kw.get("color"), "#c00000")
+        self.assertEqual(backend.texts[0][3].get("color"), "#c00000")
+        self.assertAlmostEqual(backend.texts[0][1], 8 - 5)
+
     def test_arrow_boundary_geometry(self):
         doc = load_tim(SAMPLES / "2-3-2.tim")
         arrow = doc.arrows[0]

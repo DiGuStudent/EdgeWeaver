@@ -170,6 +170,24 @@ class TimeBreak:
 
 
 @dataclass
+class Measurement:
+    """Interval between two signal edges, drawn as guides + double arrow."""
+
+    src_signal: str
+    src_cycle: int
+    dst_signal: str
+    dst_cycle: int
+    text: str = ""
+    y: int | None = None          # dimension-line Y; None = middle of the rows
+    dx: float = 0.0               # horizontal pixel offset
+    color: str = "#000000"
+    raw: str | None = None
+
+    def clone(self) -> "Measurement":
+        return copy.deepcopy(self)
+
+
+@dataclass
 class Document:
     magic: str = "TIM"
     version: str = "011"
@@ -180,6 +198,7 @@ class Document:
     list4: list[str] = field(default_factory=list)
     arrows: list[Arrow] = field(default_factory=list)
     timebreaks: list[TimeBreak] = field(default_factory=list)
+    measurements: list[Measurement] = field(default_factory=list)
     ints9: list[int] = field(default_factory=lambda: [100, 5, 30, 0, 0, 0, 0, 0, 0])
     cs: list[str] = field(default_factory=lambda: ["", ""])
     ints2: list[int] = field(default_factory=lambda: [1, 1])
@@ -484,6 +503,10 @@ class Document:
         self.timebreaks.append(tb)
         self.touch()
 
+    def add_measurement(self, measurement: Measurement) -> None:
+        self.measurements.append(measurement)
+        self.touch()
+
     def next_free_label_id(self) -> int:
         used = set()
         for label in self.labels:
@@ -520,4 +543,48 @@ def set_arrow_offset(arrow: Arrow, value: float) -> None:
         parts = ["0", "0"]
     parts[1] = str(int(round(value)))
     arrow.tail = ".".join(parts)
+    arrow.raw = None
+
+
+# EdgeWeaver extension: per-arrow pixel nudge, stored at the end of the arrow
+# tail as "<dx_tenths>.<dy_tenths>.EWPIX".  Arrows without the marker keep the
+# legacy tail byte-for-byte.
+ARROW_PIXEL_MARK = "EWPIX"
+
+
+def arrow_pixel_offset(arrow: Arrow) -> tuple[float, float]:
+    """Return the (dx, dy) pixel nudge stored in the arrow tail."""
+    parts = (arrow.tail or "").split(".")
+    try:
+        i = parts.index(ARROW_PIXEL_MARK)
+    except ValueError:
+        return 0.0, 0.0
+    if i < 2:
+        return 0.0, 0.0
+    try:
+        return float(parts[i - 2]) / 10.0, float(parts[i - 1]) / 10.0
+    except ValueError:
+        return 0.0, 0.0
+
+
+def set_arrow_pixel_offset(arrow: Arrow, dx: float, dy: float) -> None:
+    """Store a pixel nudge for *arrow*, preserving all legacy tail fields."""
+    parts = [p for p in (arrow.tail or "").split(".")]
+    if parts and parts[-1] == "":
+        parts.pop()
+    qx, qy = int(round(dx * 10.0)), int(round(dy * 10.0))
+    try:
+        i = parts.index(ARROW_PIXEL_MARK)
+    except ValueError:
+        i = -1
+    if i >= 2:
+        if qx == 0 and qy == 0:
+            del parts[i - 2:i + 1]
+        else:
+            parts[i - 2:i] = [str(qx), str(qy)]
+    elif qx or qy:
+        parts += [str(qx), str(qy), ARROW_PIXEL_MARK]
+    elif not parts:
+        return
+    arrow.tail = ".".join(parts) + "."
     arrow.raw = None

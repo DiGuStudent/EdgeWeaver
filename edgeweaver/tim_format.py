@@ -8,6 +8,7 @@ bytes or more.
 from __future__ import annotations
 
 import io
+import json
 import os
 import re
 import struct
@@ -20,6 +21,7 @@ from .model import (
     Document,
     LABEL_TAIL,
     Label,
+    Measurement,
     Row,
     SEPARATOR_REST,
     STATE_LEN,
@@ -178,6 +180,56 @@ def _parse_timebreak(record: str) -> TimeBreak | None:
     return TimeBreak(cycle, _display_text(parts[1]), raw=record)
 
 
+# EdgeWeaver extension: measurements live in list3 as ASCII JSON entries.
+# Legacy files leave list3 empty; unknown entries are preserved verbatim.
+MEASURE_PREFIX = "EWM|"
+
+
+def _serialize_measurement(measurement: Measurement) -> str:
+    payload = {
+        "v": 1,
+        "src": measurement.src_signal,
+        "sc": int(measurement.src_cycle),
+        "dst": measurement.dst_signal,
+        "dc": int(measurement.dst_cycle),
+        "text": measurement.text,
+        "y": measurement.y,
+        "dx": measurement.dx,
+        "color": measurement.color,
+    }
+    return MEASURE_PREFIX + json.dumps(payload, ensure_ascii=True,
+                                       separators=(",", ":"))
+
+
+def _parse_measurement(record: str) -> Measurement | None:
+    if not record.startswith(MEASURE_PREFIX):
+        return None
+    try:
+        payload = json.loads(record[len(MEASURE_PREFIX):])
+        y = payload.get("y")
+        return Measurement(
+            str(payload["src"]), int(payload["sc"]),
+            str(payload["dst"]), int(payload["dc"]),
+            str(payload.get("text", "")),
+            None if y is None else int(y),
+            float(payload.get("dx", 0.0)),
+            str(payload.get("color", "#000000")))
+    except (ValueError, KeyError, TypeError):
+        return None
+
+
+def _split_measurements(entries: list[str]):
+    kept: list[str] = []
+    measurements: list[Measurement] = []
+    for entry in entries:
+        measurement = _parse_measurement(entry)
+        if measurement is None:
+            kept.append(entry)
+        else:
+            measurements.append(measurement)
+    return kept, measurements
+
+
 def load_tim(path: str | Path) -> Document:
     path = Path(path)
     with path.open("rb") as f:
@@ -208,6 +260,7 @@ def load_tim(path: str | Path) -> Document:
     labels = [_parse_label(s, names) for s in lists[1]]
     arrows = [a for a in (_parse_arrow(s) for s in lists[4]) if a is not None]
     timebreaks = [t for t in (_parse_timebreak(s) for s in lists[5]) if t is not None]
+    list3, measurements = _split_measurements(list(lists[2]))
 
     doc = Document(
         magic=magic,
@@ -215,10 +268,11 @@ def load_tim(path: str | Path) -> Document:
         ints4=ints4,
         rows=rows,
         labels=labels,
-        list3=list(lists[2]),
+        list3=list3,
         list4=list(lists[3]),
         arrows=arrows,
         timebreaks=timebreaks,
+        measurements=measurements,
         ints9=ints9,
         cs=cs,
         ints2=ints2,
@@ -295,7 +349,8 @@ def dumps_tim(doc: Document) -> bytes:
         lists = [
             [_serialize_row(r) for r in doc.rows],
             [_serialize_label(l) for l in doc.labels],
-            list(doc.list3),
+            list(doc.list3) + [_serialize_measurement(m)
+                               for m in doc.measurements],
             list(doc.list4),
             [_serialize_arrow(a) for a in doc.arrows],
             [_serialize_timebreak(t) for t in doc.timebreaks],

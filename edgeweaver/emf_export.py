@@ -4,8 +4,8 @@ EMF is a vector format that office suites and drawing applications embed
 directly, so it is a convenient way to put a crisp, resizable timing diagram
 into a document.
 
-The implementation writes GDI EMF records itself (no libEMF, no Windows API,
-no QtSvg): lines, rectangles, polygons, cubic Beziers and Unicode text.
+The implementation writes GDI EMF records itself: lines, rectangles,
+polygons, cubic Beziers and Unicode text.
 Coordinates are logical pixels at 96 dpi, matching the on-screen renderer and
 the PNG/PDF exports.  The header's frame rectangle (rclFrame) is the picture
 rectangle converted to 0.01 mm.

@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from PyQt6.QtWidgets import (
     QCheckBox,
+    QColorDialog,
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -136,9 +138,11 @@ class AnnotationsDialog(QDialog):
         tabs = QTabWidget()
         self.label_list = QListWidget()
         self.arrow_list = QListWidget()
+        self.measure_list = QListWidget()
         self.break_list = QListWidget()
         tabs.addTab(self._make_tab(self.label_list, self._delete_labels), "Labels")
         tabs.addTab(self._make_tab(self.arrow_list, self._delete_arrows), "Arrows")
+        tabs.addTab(self._make_measure_tab(), "Measurements")
         tabs.addTab(self._make_tab(self.break_list, self._delete_breaks), "Time Breaks")
         layout.addWidget(tabs, 1)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok |
@@ -157,6 +161,23 @@ class AnnotationsDialog(QDialog):
         v.addWidget(btn)
         return w
 
+    def _make_measure_tab(self) -> QWidget:
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.addWidget(self.measure_list, 1)
+        row = QHBoxLayout()
+        edit = QPushButton("Edit Text...")
+        edit.clicked.connect(self._edit_measure)
+        color = QPushButton("Color...")
+        color.clicked.connect(self._color_measure)
+        delete = QPushButton("Delete Selected")
+        delete.clicked.connect(self._delete_measure)
+        row.addWidget(edit)
+        row.addWidget(color)
+        row.addWidget(delete)
+        v.addLayout(row)
+        return w
+
     def _refresh(self):
         self.label_list.clear()
         for label in self.doc.labels:
@@ -167,6 +188,12 @@ class AnnotationsDialog(QDialog):
             self.arrow_list.addItem(
                 f"{arrow.src_signal}[{arrow.src_cycle}] -> "
                 f"{arrow.dst_signal}[{arrow.dst_cycle}]   type {arrow.kind}")
+        self.measure_list.clear()
+        for measurement in self.doc.measurements:
+            self.measure_list.addItem(
+                f"{measurement.text!r}   {measurement.src_signal}"
+                f"[{measurement.src_cycle}] -> {measurement.dst_signal}"
+                f"[{measurement.dst_cycle}]")
         self.break_list.clear()
         for tb in self.doc.timebreaks:
             self.break_list.addItem(f"cycle {tb.cycle}   @ {tb.signal}")
@@ -195,6 +222,38 @@ class AnnotationsDialog(QDialog):
         if 0 <= row < len(self.doc.timebreaks):
             del self.doc.timebreaks[row]
             self.break_list.setCurrentRow(min(row, len(self.doc.timebreaks) - 1))
+            self._deleted()
+
+    def _edit_measure(self):
+        row = self.measure_list.currentRow()
+        if not 0 <= row < len(self.doc.measurements):
+            return
+        measurement = self.doc.measurements[row]
+        text, ok = QInputDialog.getText(
+            self, "Measurement Text", "Text:", text=measurement.text)
+        if ok and text != measurement.text:
+            measurement.text = text
+            self._deleted()
+
+    def _color_measure(self):
+        row = self.measure_list.currentRow()
+        if not 0 <= row < len(self.doc.measurements):
+            return
+        measurement = self.doc.measurements[row]
+        from PyQt6.QtGui import QColor
+
+        color = QColorDialog.getColor(QColor(measurement.color or "#000000"),
+                                      self, "Measurement Color")
+        if color.isValid() and color.name() != (measurement.color or "#000000"):
+            measurement.color = color.name()
+            self._deleted()
+
+    def _delete_measure(self):
+        row = self.measure_list.currentRow()
+        if 0 <= row < len(self.doc.measurements):
+            del self.doc.measurements[row]
+            self.measure_list.setCurrentRow(
+                min(row, len(self.doc.measurements) - 1))
             self._deleted()
 
 

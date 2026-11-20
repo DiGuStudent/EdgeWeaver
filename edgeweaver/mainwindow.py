@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from PyQt6.QtCore import QSettings, Qt
@@ -134,6 +135,7 @@ class MainWindow(QMainWindow):
 
         self.export_actions = {}
         for key, label in (("emf", "&EMF..."), ("svg", "&SVG..."),
+                           ("svg_transparent", "SVG (&Transparent)..."),
                            ("png", "&PNG..."), ("pdf", "&PDF..."),
                            ("csv", "&CSV..."), ("xml", "Timing &XML...")):
             act = QAction(label, self)
@@ -280,6 +282,7 @@ class MainWindow(QMainWindow):
             ("bus", "Bus", "B", "Draw bus"),
             ("text", "Text", "T", "Place label text"),
             ("arrow", "Arrow", "A", "Draw relationship arrow"),
+            ("measure", "Measure", "M", "Measure the interval between two edges"),
             ("break", "Break", "K", "Draw time break"),
             ("erase", "Erase", "E", "Erase cells"),
         ]
@@ -447,15 +450,21 @@ class MainWindow(QMainWindow):
         filters = {
             "emf": ("Enhanced Metafile (*.emf)", ".emf"),
             "svg": ("Scalable Vector Graphics (*.svg)", ".svg"),
+            "svg_transparent": ("Scalable Vector Graphics (*.svg)", ".svg"),
             "png": ("PNG image (*.png)", ".png"),
             "pdf": ("PDF document (*.pdf)", ".pdf"),
             "csv": ("CSV files (*.csv)", ".csv"),
             "xml": ("Timing XML (*.xml)", ".xml"),
         }
+        titles = {
+            "emf": "EMF", "svg": "SVG", "svg_transparent": "SVG (Transparent)",
+            "png": "PNG", "pdf": "PDF", "csv": "CSV", "xml": "XML",
+        }
         label, ext = filters[kind]
         default = str(Path(self._last_dir) /
                       ((self.doc.path.stem if self.doc.path else "edgeweaver") + ext))
-        path, _ = QFileDialog.getSaveFileName(self, f"Export {kind.upper()}", default, label)
+        path, _ = QFileDialog.getSaveFileName(
+            self, f"Export {titles.get(kind, kind.upper())}", default, label)
         if not path:
             return
         if not path.lower().endswith(ext):
@@ -465,6 +474,8 @@ class MainWindow(QMainWindow):
                 export_emf(self.doc, path, self.render_options)
             elif kind == "svg":
                 export_svg(self.doc, path, self.render_options)
+            elif kind == "svg_transparent":
+                export_svg(self.doc, path, replace(self.render_options, background=False))
             elif kind == "png":
                 export_png(self.doc, path, 1.0, self.render_options)
             elif kind == "pdf":
@@ -735,6 +746,7 @@ class MainWindow(QMainWindow):
             "bus": "Click/drag to draw bus (4)",
             "text": "Click to place a label",
             "arrow": f"Click source, then destination ({arrow_style_name(self.arrow_kind)})",
+            "measure": "Click the first edge, then the second edge; enter the interval text",
             "break": "Click to insert a time break at that slot",
             "erase": "Click/drag to erase to the default level",
         }
@@ -764,13 +776,12 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self, "About EdgeWeaver",
             "<h3>EdgeWeaver</h3>"
-            "<p>An independent Linux timing-diagram editor for legacy "
+            "<p>A Linux-native timing-diagram editor for legacy "
             "<code>.tim</code> timing files.</p>"
-            "<p>Clean-room implementation; no third-party code, icons or "
-            "bitmaps are used.</p>"
             "<p>Supported: .tim read/write (011/010), EMF/PNG/SVG/PDF/CSV/XML export, "
             "XML/CSV import, clocks, signals, buses, separators, labels, arrows, "
-            "time breaks, Z state, edge styles, undo/redo.</p>")
+            "time breaks, Z state, edge styles, undo/redo.</p>"
+            "<p>Released under the MIT License.</p>")
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():

@@ -2,11 +2,21 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, QPointF, pyqtSignal
+from PyQt6.QtCore import Qt, QPointF, QRectF, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPainterPath, QPen
-from PyQt6.QtWidgets import QInputDialog, QMenu, QWidget
+from PyQt6.QtWidgets import QColorDialog, QInputDialog, QMenu, QWidget
 
-from .model import Arrow, Document, LABEL_TAIL, Label, TimeBreak, set_arrow_offset
+from .model import (
+    Arrow,
+    Document,
+    LABEL_TAIL,
+    Label,
+    Measurement,
+    TimeBreak,
+    arrow_pixel_offset,
+    set_arrow_offset,
+    set_arrow_pixel_offset,
+)
 from .renderer import (
     ArrowGeometry,
     QtBackend,
@@ -18,6 +28,7 @@ from .renderer import (
     arrow_offset,
     arrow_style,
     arrow_style_name,
+    measurement_geometry,
     render_document,
 )
 
@@ -30,6 +41,7 @@ TOOL_CURSORS = {
     "text": Qt.CursorShape.IBeamCursor,
     "arrow": Qt.CursorShape.CrossCursor,
     "break": Qt.CursorShape.CrossCursor,
+    "measure": Qt.CursorShape.CrossCursor,
     "erase": Qt.CursorShape.CrossCursor,
 }
 
@@ -48,6 +60,7 @@ class TimingCanvas(QWidget):
         self.tool = "select"
         self.selection: Selection | None = None
         self.selected_arrow: int | None = None
+        self.selected_measurement: int | None = None
         self._anchor: tuple[int, int] | None = None
         self._drag_row: int | None = None
         self._drag_start = 0
@@ -56,6 +69,13 @@ class TimingCanvas(QWidget):
         self._edit_before: Document | None = None
         self._drag_changed = False
         self._arrow_src: tuple[int, int] | None = None
+        self._measure_src: tuple[int, int] | None = None
+        # measurement dragging
+        self._drag_measure: int | None = None
+        self._drag_measure_edit: Document | None = None
+        self._drag_measure_y0 = 0.0
+        self._drag_measure_orig_y = 0.0
+        self._measure_changed = False
         self._hover: tuple[int, int] | None = None
         # arrow dragging
         self._drag_arrow: int | None = None
@@ -73,7 +93,12 @@ class TimingCanvas(QWidget):
         self.doc = doc
         self.selection = None
         self.selected_arrow = None
+        self.selected_measurement = None
         self._arrow_src = None
+        self._measure_src = None
+        self._drag_measure = None
+        self._drag_measure_edit = None
+        self._measure_changed = False
         self._hover = None
         self._snap_guide = None
         self._drag_arrow = None
@@ -90,11 +115,16 @@ class TimingCanvas(QWidget):
     def set_tool(self, tool: str) -> None:
         self.tool = tool
         self._arrow_src = None
+        self._measure_src = None
+        self._drag_measure = None
+        self._drag_measure_edit = None
+        self._measure_changed = False
         self._snap_guide = None
         self._drag_arrow = None
         self._drag_mode = None
         if tool != "select":
             self.selected_arrow = None
+            self.selected_measurement = None
         self.setCursor(TOOL_CURSORS.get(tool, Qt.CursorShape.ArrowCursor))
         self.update()
 
@@ -146,6 +176,114 @@ class TimingCanvas(QWidget):
             f" to bend/move, Del removes"
         )
 
+    def _measurement_at(self, x: float, y: float) -> int | None:
+        for i, measurement in enumerate(self.doc.measurements):
+            geom = measurement_geometry(self.doc, measurement)
+            if geom is None:
+                continue
+            if (abs(y - geom.y) <= 5
+                    and min(geom.x1, geom.x2) - 4 <= x <= max(geom.x1, geom.x2) + 4):
+                return i
+            for gx in (geom.x1, geom.x2):
+                if abs(x - gx) <= 4 and geom.top - 4 <= y <= geom.bottom + 4:
+                    return i
+            if measurement.text:
+                cx = (geom.x1 + geom.x2) / 2.0
+                half = max(8.0, 6.5 * len(measurement.text) / 2.0)
+                if abs(y - (geom.y - 11.0)) <= 9 and abs(x - cx) <= half:
+                    return i
+        return None
+
+    def _edit_measurement(self, index: int) -> None:
+        if not (0 <= index < len(self.doc.measurements)):
+            return
+        measurement = self.doc.measurements[index]
+        text, ok = QInputDialog.getText(
+            self, "Measurement Text", "Text:", text=measurement.text)
+        if not ok or text == measurement.text:
+            return
+        before = self.doc.clone()
+        measurement.text = text
+        self.doc.touch()
+        self.window.push_edit("Edit measurement", before, self.doc.clone())
+        self.update()
+
+    def _choose_measure_color(self, index: int) -> None:
+        if not (0 <= index < len(self.doc.measurements)):
+            return
+        measurement = self.doc.measurements[index]
+        color = QColorDialog.getColor(QColor(measurement.color or "#000000"),
+                                      self, "Measurement Color")
+        if not color.isValid() or color.name() == (measurement.color or "#000000"):
+            return
+        before = self.doc.clone()
+        measurement.color = color.name()
+        self.doc.touch()
+        self.window.push_edit("Measurement color", before, self.doc.clone())
+        self.update()
+
+    def _begin_measure_drag(self, index: int, mouse_y: float) -> None:
+        if not (0 <= index < len(self.doc.measurements)):
+            return
+        geom = measurement_geometry(self.doc, self.doc.measurements[index])
+        if geom is None:
+            return
+        self.selected_measurement = index
+        self.selected_arrow = None
+        self.selection = None
+        self._drag_measure = index
+        self._drag_measure_edit = self.doc.clone()
+        self._drag_measure_y0 = mouse_y
+        self._drag_measure_orig_y = geom.y
+        self._measure_changed = False
+        self.window.status_message(
+            "Drag up/down to move the measurement; Esc cancels, Del removes")
+
+    def _update_measure_drag(self, mouse_y: float) -> None:
+        if self._drag_measure is None:
+            return
+        if not (0 <= self._drag_measure < len(self.doc.measurements)):
+            return
+        measurement = self.doc.measurements[self._drag_measure]
+        new_y = self._drag_measure_orig_y + (mouse_y - self._drag_measure_y0)
+        new_y = max(16.0, min(self.doc.content_height - 4.0, new_y))
+        if abs(new_y - self._drag_measure_orig_y) < 0.5:
+            return
+        measurement.y = int(round(new_y))
+        self.doc.touch()
+        self._measure_changed = True
+
+    def _finish_measure_drag(self) -> None:
+        if (self._drag_measure is not None and self._drag_measure_edit is not None
+                and self._measure_changed):
+            index = self._drag_measure
+            self.window.push_edit("Move measurement", self._drag_measure_edit,
+                                  self.doc.clone())
+            self.selected_measurement = index
+        self._drag_measure = None
+        self._drag_measure_edit = None
+        self._measure_changed = False
+        self.window.status_message("")
+
+    def _cancel_measure_drag(self) -> None:
+        if self._drag_measure is not None and self._drag_measure_edit is not None:
+            revert = self._drag_measure_edit.clone()
+            self._drag_measure = None
+            self._drag_measure_edit = None
+            self._measure_changed = False
+            self.window.apply_document(revert, mark_dirty=bool(revert.dirty))
+
+    def _delete_measurement(self, index: int) -> None:
+        if not (0 <= index < len(self.doc.measurements)):
+            return
+        before = self.doc.clone()
+        del self.doc.measurements[index]
+        self.doc.touch()
+        self.selected_measurement = None
+        self.window.push_edit("Delete measurement", before, self.doc.clone())
+        self.window.status_message("")
+        self.update()
+
     def _snap_arrow_cycle(self, row: int, x: float) -> tuple[int, str]:
         """Snap arrow endpoints to the nearest signal edge, else to the grid."""
         grid = self.doc.x_to_cycle(x)
@@ -182,6 +320,20 @@ class TimingCanvas(QWidget):
             painter.setBrush(ARROW_BLUE)
             painter.drawEllipse(QPointF(*geom.bend), 4.5, 4.5)
             painter.setBrush(Qt.BrushStyle.NoBrush)
+
+        if (self.selected_measurement is not None
+                and 0 <= self.selected_measurement < len(self.doc.measurements)):
+            geom = measurement_geometry(
+                self.doc, self.doc.measurements[self.selected_measurement])
+            if geom is not None:
+                pen = QPen(ARROW_BLUE)
+                pen.setStyle(Qt.PenStyle.DashLine)
+                pen.setWidthF(1.2)
+                painter.setPen(pen)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawRect(QRectF(
+                    min(geom.x1, geom.x2) - 3, geom.top - 3,
+                    abs(geom.x2 - geom.x1) + 6, geom.bottom - geom.top + 6))
 
         if self._snap_guide is not None:
             grow, gx, gkind = self._snap_guide
@@ -377,13 +529,21 @@ class TimingCanvas(QWidget):
             idx = self._arrow_at(x, y)
             if idx is not None:
                 self.selected_arrow = idx
+                self.selected_measurement = None
                 self.selection = None
                 self._begin_arrow_drag(idx, "move", row, slot, x, y)
                 self._select_arrow_status(idx)
                 self.update()
                 return
+            # 2b) a measurement annotation
+            measure = self._measurement_at(x, y)
+            if measure is not None:
+                self._begin_measure_drag(measure, y)
+                self.update()
+                return
             # 3) cells
             self.selected_arrow = None
+            self.selected_measurement = None
             self.selection = Selection(row, slot, slot)
             self._anchor = (row, slot)
             self.update()
@@ -442,6 +602,40 @@ class TimingCanvas(QWidget):
                 self._snap_guide = None
                 self.window.status_message("")
                 self.update()
+        elif self.tool == "measure":
+            if self.doc.rows[row].kind in ("separator", "raw"):
+                self.window.status_message("Measurements need a signal row")
+                return
+            cycle, edge_kind = self._snap_arrow_cycle(row, x)
+            if self._measure_src is None:
+                self._measure_src = (row, cycle)
+                self._snap_guide = (row, self.doc.cycle_to_x(cycle),
+                                    edge_kind or "grid")
+                self.window.status_message(
+                    f"Measure start: {self.doc.rows[row].name}[{cycle}]"
+                    f"{' (' + edge_kind + ')' if edge_kind != 'grid' else ''}"
+                    " — click the second edge (Esc to cancel)")
+                self.update()
+            else:
+                sr, sc = self._measure_src
+                if cycle != sc:
+                    before = self.doc.clone()
+                    src_name = self.doc.rows[sr].name
+                    dst_name = self.doc.rows[row].name
+                    text, ok = QInputDialog.getText(
+                        self, "Measurement",
+                        "Text (e.g. tSU = 5 ns):")
+                    self.doc.add_measurement(Measurement(
+                        src_name, sc, dst_name, cycle, text if ok else ""))
+                    self.window.push_edit("Add measurement", before,
+                                          self.doc.clone())
+                else:
+                    self.window.status_message(
+                        "The two edges are at the same time; pick another edge")
+                self._measure_src = None
+                self._snap_guide = None
+                self.window.status_message("")
+                self.update()
         elif self.tool == "break":
             cycle = self.doc.x_to_cycle(x)
             before = self.doc.clone()
@@ -461,6 +655,10 @@ class TimingCanvas(QWidget):
         row, slot, x, y = self._pmap(event)
         self._hover = (row, slot) if row >= 0 else None
         self.cursorMoved.emit(row, slot)
+        if self._drag_measure is not None:
+            self._update_measure_drag(y)
+            self.update()
+            return
         if self._drag_arrow is not None:
             self._update_arrow_drag(row, slot, x, y)
             self.update()
@@ -469,6 +667,8 @@ class TimingCanvas(QWidget):
             cycle, edge_kind = self._snap_arrow_cycle(row, x)
             self._snap_guide = (row, self.doc.cycle_to_x(cycle),
                                 edge_kind or "grid")
+        elif self.tool == "measure" and self._measure_src is not None:
+            pass  # keep the start-edge guide
         else:
             self._snap_guide = None
         if self._anchor is not None and self.tool == "select":
@@ -487,6 +687,10 @@ class TimingCanvas(QWidget):
 
     def mouseReleaseEvent(self, event):
         if event.button() != Qt.MouseButton.LeftButton:
+            return
+        if self._drag_measure is not None:
+            self._finish_measure_drag()
+            self.update()
             return
         if self._drag_arrow is not None:
             self._finish_arrow_drag()
@@ -508,15 +712,74 @@ class TimingCanvas(QWidget):
             event.ignore()
 
     def keyPressEvent(self, event):
-        if event.key() == Qt.Key.Key_Delete:
+        key = event.key()
+        if (key in (Qt.Key.Key_Left, Qt.Key.Key_Right,
+                    Qt.Key.Key_Up, Qt.Key.Key_Down)
+                and self.selected_measurement is not None):
+            index = self.selected_measurement
+            if not (0 <= index < len(self.doc.measurements)):
+                super().keyPressEvent(event)
+                return
+            measurement = self.doc.measurements[index]
+            geom = measurement_geometry(self.doc, measurement)
+            if geom is None:
+                super().keyPressEvent(event)
+                return
+            step = 10.0 if event.modifiers() & Qt.KeyboardModifier.ShiftModifier else 1.0
+            before = self.doc.clone()
+            if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
+                base = float(measurement.y) if measurement.y is not None else geom.y
+                base += -step if key == Qt.Key.Key_Up else step
+                measurement.y = int(round(max(
+                    16.0, min(self.doc.content_height - 4.0, base))))
+                y_value, x_value = measurement.y, float(measurement.dx or 0.0)
+            else:
+                measurement.dx = float(measurement.dx or 0.0) + \
+                    (-step if key == Qt.Key.Key_Left else step)
+                y_value = geom.y
+                x_value = measurement.dx
+            self.doc.touch()
+            self.window.push_edit("Nudge measurement", before, self.doc.clone())
+            self.selected_measurement = index
+            self.window.status_message(
+                f"Measurement: y={y_value:.0f}, dx={x_value:+.0f} px")
+            self.update()
+            event.accept()
+        elif key in (Qt.Key.Key_Left, Qt.Key.Key_Right,
+                     Qt.Key.Key_Up, Qt.Key.Key_Down) and self.selected_arrow is not None:
+            if not (0 <= self.selected_arrow < len(self.doc.arrows)):
+                super().keyPressEvent(event)
+                return
+            step = 10.0 if event.modifiers() & Qt.KeyboardModifier.ShiftModifier else 1.0
+            ax = {Qt.Key.Key_Left: -step, Qt.Key.Key_Right: step}.get(key, 0.0)
+            ay = {Qt.Key.Key_Up: -step, Qt.Key.Key_Down: step}.get(key, 0.0)
+            index = self.selected_arrow
+            before = self.doc.clone()
+            arrow = self.doc.arrows[index]
+            ox, oy = arrow_pixel_offset(arrow)
+            set_arrow_pixel_offset(arrow, ox + ax, oy + ay)
+            self.doc.touch()
+            self.window.push_edit("Nudge arrow", before, self.doc.clone())
+            # QUndoStack.push() re-applies the document and clears the canvas
+            # selection; keep the arrow selected for repeated nudges.
+            self.selected_arrow = index
+            self.window.status_message(
+                f"Arrow offset: {ox + ax:+.0f}, {oy + ay:+.0f} px")
+            self.update()
+            event.accept()
+        elif key == Qt.Key.Key_Delete:
             self.delete_selection()
             event.accept()
-        elif event.key() == Qt.Key.Key_Escape:
+        elif key == Qt.Key.Key_Escape:
+            if self._drag_measure is not None:
+                self._cancel_measure_drag()
             if self._drag_arrow is not None:
                 self._cancel_arrow_drag()
             self._arrow_src = None
+            self._measure_src = None
             self._snap_guide = None
             self.selected_arrow = None
+            self.selected_measurement = None
             self.selection = None
             self.window.status_message("")
             self.update()
@@ -532,6 +795,11 @@ class TimingCanvas(QWidget):
             self.window.edit_arrow(idx)
             event.accept()
             return
+        measure = self._measurement_at(x, y)
+        if measure is not None:
+            self._edit_measurement(measure)
+            event.accept()
+            return
         if row >= 0 and x < self.doc.wave_x0:
             self.window.rename_row(row)
             event.accept()
@@ -540,6 +808,18 @@ class TimingCanvas(QWidget):
 
     # ------------------------------------------------------------------ actions
     def delete_selection(self) -> None:
+        if self.selected_measurement is not None:
+            idx = self.selected_measurement
+            if 0 <= idx < len(self.doc.measurements):
+                before = self.doc.clone()
+                del self.doc.measurements[idx]
+                self.doc.touch()
+                self.selected_measurement = None
+                self.window.push_edit("Delete measurement", before,
+                                      self.doc.clone())
+                self.window.status_message("")
+                self.update()
+            return
         if self.selected_arrow is not None:
             idx = self.selected_arrow
             if 0 <= idx < len(self.doc.arrows):
@@ -562,6 +842,7 @@ class TimingCanvas(QWidget):
     def _context_menu(self, event):
         row, slot, x, y = self._pmap(event)
         idx = self._arrow_at(x, y)
+        measure = None if idx is not None else self._measurement_at(x, y)
         menu = QMenu(self)
         if idx is not None:
             self.selected_arrow = idx
@@ -570,6 +851,18 @@ class TimingCanvas(QWidget):
             menu.addAction("Delete Arrow", lambda: self.window.delete_arrow(idx))
             menu.addSeparator()
             menu.addAction("Add Arrow from here...", lambda: self.window.set_tool("arrow"))
+            menu.addSeparator()
+        elif measure is not None:
+            self.selected_measurement = measure
+            self.selected_arrow = None
+            self.selection = None
+            self.update()
+            menu.addAction("Edit Measurement Text...",
+                           lambda: self._edit_measurement(measure))
+            menu.addAction("Measurement Color...",
+                           lambda: self._choose_measure_color(measure))
+            menu.addAction("Delete Measurement",
+                           lambda: self._delete_measurement(measure))
             menu.addSeparator()
         if row < 0:
             menu.addAction("Document Settings...", self.window.document_settings)

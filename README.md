@@ -2,8 +2,6 @@
 
 EdgeWeaver 是一个 Linux 原生的时序图编辑器，读写 legacy `.tim` 时序文件。
 
-它是独立的 clean-room 实现，不包含任何第三方程序的代码、图标或位图资源。
-
 ---
 
 ## 已实现功能
@@ -20,14 +18,20 @@ EdgeWeaver 是一个 Linux 原生的时序图编辑器，读写 legacy `.tim` �
   `Signal/Clock Properties` 还可设置时钟周期、占空比、起始电平。
 - **标注**：文本标签、信号间关系箭头、时间断裂（Time Break）；
   `Edit → Annotations...` 可集中查看和删除。
+- **边沿间隔测量**：选择两个边沿，画两条竖线和一条双向水平箭头，箭头上方可填写
+  中文/英文/数字/单位（`us`、`ms`、`ns` 等）。用 Select 工具上下拖动刻度线可
+  调整高度（竖线随之伸缩），选中后方向键 1 px / Shift+方向键 10 px 微调；
+  右键可修改颜色（默认黑色）、文字，`Del` 删除；也可在
+  `Edit → Annotations → Measurements` 中集中管理。
 - **箭头编辑**：选择工具下点击箭头即可选中；拖两端改信号/槽位，拖弯曲手柄改弧度，
   拖箭头其它位置整体移动；`Del` 删除；双击或 `Edit → Edit Arrow...` 精确编辑。
 - **箭头样式**：工具栏 `Arrow:` 下拉选择 Straight / Angled / Bezier / Floating，
   已有箭头可在 Edit Arrow 对话框中切换；样式数值写回 `.tim` 的 type 字段。
 - **边沿吸附**：创建/拖动箭头端点时自动吸附到目标信号的跳变边沿
   （上升/下降/总线跳变）；附近没有边沿时退回最近网格边界；拖动时显示蓝色虚线引导。
-- **导出**：EMF 矢量图、PNG、SVG、PDF、CSV、Timing XML。
+- **导出**：EMF 矢量图、PNG、SVG（可导出透明背景）、PDF、CSV、Timing XML。
 - **导入**：Timing XML、CSV。
+- **CLI**：无窗口命令 `draw` / `convert`，用 JSON 描述生成时序图，便于脚本和 AI 调用（见 `docs/cli.md`）。
 - **显示**：网格/时钟周期线、信号名、名称/波形分栏线、总线值、包围矩形开关；缩放/适应窗口。
 - **其他**：拖放打开 `.tim`、最近目录记忆、GBK/GB18030 中文标签显示（默认）。
 - **无网络、无数据库、无外部运行时依赖**（除 PyQt6）。
@@ -40,6 +44,16 @@ cd /home/studig/Documents/project/EdgeWeaver
 # 或直接打开文件：
 ./run.sh "/path/to/2-3-2.tim"
 ```
+
+命令行（无窗口，供脚本/AI 使用）：
+
+```bash
+./run-cli.sh draw spec.json --out timing.tim --out timing.svg --transparent
+./run-cli.sh convert timing.tim --out timing.emf --out timing.png
+./run-cli.sh describe          # 打印完整 CLI/JSON 说明
+```
+
+完整说明见 [`docs/cli.md`](docs/cli.md)。
 
 依赖：Linux、Python 3.10+、PyQt6（已在 Python 3.14 + PyQt6 6.10.2 下验证）。
 
@@ -59,6 +73,7 @@ cd /home/studig/Documents/project/EdgeWeaver
 | `B` | 画总线（值 4） |
 | `T` | 放置文本标签 |
 | `A` | 画关系箭头（先点源，再点目标） |
+| `M` | 边沿间隔测量（先点起点边沿，再点终点边沿，输入文字） |
 | `K` | 时间断裂 |
 | `E` | 擦除 |
 | `F2` | Signal/Clock Properties（边沿、时钟参数） |
@@ -69,21 +84,30 @@ cd /home/studig/Documents/project/EdgeWeaver
 | 选中箭头后拖蓝色弯曲手柄 | 调整弧度（offset） |
 | 选中箭头后拖其它位置 | 整体移动箭头 |
 | 箭头端点靠近信号跳变 | 自动吸附到该边沿（上升/下降/总线跳变） |
+| 选中箭头后方向键 | 按 1 px 微调箭头整体位置 |
+| 选中箭头后 Shift+方向键 | 按 10 px 微调箭头整体位置 |
+| 选中测量后上下方向键 | 调整刻度线高度 1 px（竖线随之伸缩） |
+| 选中测量后左右方向键 | 测量整体左右移动 1 px |
+| 选中测量后 Shift+方向键 | 上述调整按 10 px 步进 |
 
 ## 项目结构
 
 ```
 EdgeWeaver/
 ├── run.sh
+├── run-cli.sh               # 无窗口 CLI 入口
 ├── requirements.txt
 ├── README.md
+├── LICENSE
+├── docs/cli.md              # CLI 与 JSON 描述格式说明
 ├── samples/                 # legacy .tim test fixtures
 ├── edgeweaver/
 │   ├── model.py             # 文档模型、行/标签/箭头/时间断裂、600 槽状态
 │   ├── tim_format.py        # .tim 读写（counted string、未知字段原样保留）
 │   ├── renderer.py          # 与后端无关的绘制逻辑 + QtBackend
-│   ├── svg_export.py        # 自写 SVG 后端（不依赖 QtSvg）
-│   ├── emf_export.py        # 自写 EMF 后端（GDI 记录流）
+│   ├── svg_export.py        # SVG 导出后端
+│   ├── emf_export.py        # EMF 导出后端（GDI 记录流）
+│   ├── cli.py               # 无窗口 CLI（JSON 生成 / 格式转换）
 │   ├── exporters.py         # PNG/PDF/CSV/XML 导出，XML/CSV 导入
 │   ├── canvas.py            # 交互画布（绘制、选择、工具、吸附、上下文菜单）
 │   ├── dialogs.py           # 添加行、行属性、箭头属性、标注管理
@@ -144,6 +168,13 @@ NAME\t\t\t\t\tSEP_0.<separator fields>
   - `delay[599] = 0x45444745`（`"EDGE"` magic）
   - `delay[598] = 斜边宽度（px）`
   - 其他 delay 数据保持不变；无 sentinel 的行按垂直边沿渲染。
+- **箭头像素偏移**：在箭头 tail 末尾追加 `<dx×10>.<dy×10>.EWPIX`。例如
+  `0.43.1.0.0.0.10.-100.EWPIX.` 表示箭头整体右移 1 px、上移 10 px。
+  没有 `EWPIX` 标记的箭头记录保持原样，按周期/行吸附渲染。
+- **边沿间隔测量**：存放在第 3 个辅助字符串表（list3）中，每条以
+  `EWM|` 开头、后接 ASCII JSON（`v/src/sc/dst/dc/text/y/dx/color`）。
+  `y` 为刻度线绝对高度（缺省=两行中点），`dx` 为水平偏移，`color` 默认
+  `#000000`。不含 `EWM|` 的 list3 条目原样保留；文件未修改时仍走原始字节回写。
 
 这些扩展不会改变原有样本的字节级 round-trip；其他工具可能忽略或丢弃它们。
 
@@ -153,11 +184,15 @@ NAME\t\t\t\t\tSEP_0.<separator fields>
 QT_QPA_PLATFORM=offscreen /usr/bin/python3 -m unittest discover -s tests -v
 ```
 
-当前 26 个测试全部通过，包括：
+当前 40 个测试全部通过，包括：
 
 - 4 个真实 `.tim` 的字节级 round-trip；
 - EMF 记录结构、头部帧/设备尺寸、Unicode 文本偏移与字体记录；
-- 名称/波形分栏线的显示开关；
+- 名称/波形分栏线的显示开关、透明背景 SVG 导出；
+- 箭头方向键像素微调、撤销与保存/重载；
+- 边沿间隔测量：竖线/双向箭头几何、中文文字、颜色/高度/水平偏移、拖动与方向键、
+  保存/重载、GUI 工具；
+- CLI `draw`/`convert`/`describe`、JSON 结果、错误退出码与多格式输出；
 - 编辑/新增行/新增标签/箭头/时间断裂后的保存-重载；
 - PNG/SVG/PDF 导出与 2-3-2 的像素级几何检查；
 - 箭头选择、弯曲拖动、端点拖动、Delete 删除与撤销恢复；
@@ -177,14 +212,15 @@ QT_QPA_PLATFORM=offscreen /usr/bin/python3 -m unittest discover -s tests -v
 - `Cycles:` 以第一路时钟的周期为单位；多时钟且周期不同时以第一路为准。
 - 增加 `Cycles` 只重生成时钟；普通信号超出原可见宽度的部分取其 600 槽缓冲中的现有值，
   不会自动填充。
-- Z 字符和 delay sentinel 是 EdgeWeaver 扩展；其他工具可能忽略或丢失。
+- Z 字符、delay sentinel 和箭头 `EWPIX` 偏移是 EdgeWeaver 扩展；其他工具可能忽略或丢失。
 - 打印对话框、剪贴板矢量复制尚未实现；EMF 支持文件导出，但尚未支持把 EMF
   直接复制到系统剪贴板。
 - XML 导出遵循 per-signal schema：只包含附着在信号上的标签，自由标签不会写入 XML。
+- XML/CSV 导出不包含边沿间隔测量；EMF/SVG/PNG/PDF 与 `.tim` 保存均包含。
 
 ## 后续可做
 
 1. 行属性扩展（字体、颜色、Active Low、差分、理想/非理想边沿箭头）。
 2. 标签旋转、flood 绘制工具、总线斜边。
-3. 打印对话框、剪贴板位图/矢量复制、EMF 剪贴板复制。
+3. 打印对话框、剪贴板复制、EMF 剪贴板复制。
 4. 与其他时序工具的 SVG/XML 双向互操作。

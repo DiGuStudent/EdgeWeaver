@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from edgeweaver.model import (Document, Row, Label, Arrow, TimeBreak,
-                            EDGE_MAGIC)  # noqa: E402
+                            Measurement, EDGE_MAGIC)  # noqa: E402
 from edgeweaver.tim_format import load_tim, save_tim, dumps_tim  # noqa: E402
 from edgeweaver.exporters import export_csv, export_xml, import_csv, import_xml  # noqa: E402
 
@@ -153,6 +153,30 @@ class TimFormatTests(unittest.TestCase):
             self.assertEqual(again.rows[0].kind, "clock")
             self.assertEqual(again.rows[1].kind, "data")
             self.assertEqual(again.ints4[:3], [20, 30, 16])
+
+    def test_measurement_extension_roundtrip(self):
+        doc = load_tim(SAMPLES / "2-3-2.tim")
+        doc.add_measurement(Measurement("CEB", 3, "MC", 7,
+                                        "建立时间 = 1.5 us",
+                                        12, 2.0, "#c00000"))
+        doc.list3.append("KEEP-ME")
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "measure.tim"
+            save_tim(doc, path)
+            back = load_tim(path)
+            self.assertEqual(len(back.measurements), 1)
+            measurement = back.measurements[0]
+            self.assertEqual((measurement.src_signal, measurement.src_cycle,
+                              measurement.dst_signal, measurement.dst_cycle),
+                             ("CEB", 3, "MC", 7))
+            self.assertEqual(measurement.text, "建立时间 = 1.5 us")
+            self.assertEqual(measurement.y, 12)
+            self.assertEqual(measurement.dx, 2.0)
+            self.assertEqual(measurement.color, "#c00000")
+            self.assertIn("KEEP-ME", back.list3)
+            data = path.read_bytes()
+            save_tim(back, path)
+            self.assertEqual(path.read_bytes(), data)
 
 
 class InterchangeTests(unittest.TestCase):

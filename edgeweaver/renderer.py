@@ -28,8 +28,10 @@ from .model import (
     ROW_PITCH,
     TOP_MARGIN,
     Label,
+    Measurement,
     Row,
     TimeBreak,
+    arrow_pixel_offset,
 )
 
 
@@ -216,6 +218,10 @@ def arrow_geometry(doc: Document, arrow: Arrow) -> ArrowGeometry | None:
     dx = doc.cycle_to_x(max(0, arrow.dst_cycle))
     off = arrow_offset(arrow)
     style = arrow_style(arrow.kind)
+    ox, oy = arrow_pixel_offset(arrow)
+
+    def shifted(point):
+        return (point[0] + ox, point[1] + oy)
 
     if style == "bezier":
         if si == di:
@@ -228,17 +234,21 @@ def arrow_geometry(doc: Document, arrow: Arrow) -> ArrowGeometry | None:
             c2 = (sx + (dx - sx) * 0.75, mid)
         samples = [cubic_point((sx, sy), c1, c2, (dx, dy), i / 32.0)
                    for i in range(33)]
-        segments = list(zip(samples, samples[1:]))
-        return ArrowGeometry(style, (sx, sy), (dx, dy), c1, c2,
-                             samples[16], segments)
+        segments = [(shifted(a), shifted(b))
+                    for a, b in zip(samples, samples[1:])]
+        return ArrowGeometry(style, shifted((sx, sy)), shifted((dx, dy)),
+                             shifted(c1), shifted(c2),
+                             shifted(samples[16]), segments)
 
     if style == "angled":
         elbow_y = (sy + dy) / 2.0 + off * 0.5
         p1 = (sx, elbow_y)
         p2 = (dx, elbow_y)
-        segments = [((sx, sy), p1), (p1, p2), (p2, (dx, dy))]
-        return ArrowGeometry(style, (sx, sy), (dx, dy), p1, p2,
-                             ((sx + dx) / 2.0, elbow_y), segments)
+        segments = [(shifted(a), shifted(b))
+                    for a, b in (((sx, sy), p1), (p1, p2), (p2, (dx, dy)))]
+        return ArrowGeometry(style, shifted((sx, sy)), shifted((dx, dy)),
+                             shifted(p1), shifted(p2),
+                             shifted(((sx + dx) / 2.0, elbow_y)), segments)
 
     # straight / floating: a straight line shifted vertically by the offset
     shift = off * 0.25
@@ -252,10 +262,11 @@ def arrow_geometry(doc: Document, arrow: Arrow) -> ArrowGeometry | None:
             ux, uy = (dx2 - sx2) / length, (dy2 - sy2) / length
             sx2, sy2 = sx2 + ux * gap, sy2 + uy * gap
             dx2, dy2 = dx2 - ux * gap, dy2 - uy * gap
-    segments = [((sx2, sy2), (dx2, dy2))]
-    return ArrowGeometry(style, (sx2, sy2), (dx2, dy2),
-                         (sx2, sy2), (dx2, dy2),
-                         ((sx2 + dx2) / 2.0, (sy2 + dy2) / 2.0), segments)
+    segments = [(shifted((sx2, sy2)), shifted((dx2, dy2)))]
+    return ArrowGeometry(style, shifted((sx2, sy2)), shifted((dx2, dy2)),
+                         shifted((sx2, sy2)), shifted((dx2, dy2)),
+                         shifted(((sx2 + dx2) / 2.0, (sy2 + dy2) / 2.0)),
+                         segments)
 
 
 def _point_segment_distance(px, py, ax, ay, bx, by) -> float:
@@ -431,6 +442,59 @@ def draw_timebreak(b, tb: TimeBreak, doc: Document):
                color="#000000", width=1.0)
 
 
+MEASURE_COLOR = "#000000"
+
+
+@dataclass
+class MeasurementGeometry:
+    x1: float
+    x2: float
+    anchor_top: float
+    anchor_bottom: float
+    y: float
+    top: float
+    bottom: float
+
+
+def measurement_geometry(doc: Document,
+                         measurement: Measurement) -> MeasurementGeometry | None:
+    """Resolve a measurement to screen coordinates.
+
+    ``y`` is the dimension line; when unset it sits at the middle of the two
+    signal rows.  The guide lines always reach from the signal rows to ``y``,
+    so raising/lowering the dimension line makes them taller/shorter.
+    """
+    si = doc.find_row(measurement.src_signal)
+    di = doc.find_row(measurement.dst_signal)
+    if si < 0 or di < 0:
+        return None
+    dx = float(measurement.dx or 0.0)
+    x1 = doc.cycle_to_x(max(0, measurement.src_cycle)) + dx
+    x2 = doc.cycle_to_x(max(0, measurement.dst_cycle)) + dx
+    anchor_top = min(doc.row_top(si), doc.row_top(di))
+    anchor_bottom = max(doc.row_top(si), doc.row_top(di)) + doc.signal_height
+    default_y = (anchor_top + anchor_bottom) / 2.0
+    y = float(measurement.y) if measurement.y is not None else default_y
+    return MeasurementGeometry(x1, x2, anchor_top, anchor_bottom, y,
+                               min(anchor_top, y), max(anchor_bottom, y))
+
+
+def draw_measurement(b, measurement: Measurement, doc: Document):
+    """Two vertical edge guides joined by a double-headed arrow and text."""
+    geom = measurement_geometry(doc, measurement)
+    if geom is None or abs(geom.x2 - geom.x1) < 1.0:
+        return
+    color = measurement.color or MEASURE_COLOR
+    b.line(geom.x1, geom.top, geom.x1, geom.bottom, color=color, width=1.0)
+    b.line(geom.x2, geom.top, geom.x2, geom.bottom, color=color, width=1.0)
+    b.line(geom.x1, geom.y, geom.x2, geom.y, color=color, width=1.0)
+    _arrow_head(b, (geom.x1, geom.y), (1.0, 0.0), color=color, size=6.0)
+    _arrow_head(b, (geom.x2, geom.y), (-1.0, 0.0), color=color, size=6.0)
+    if measurement.text:
+        b.text((geom.x1 + geom.x2) / 2.0, geom.y - 5.0, measurement.text,
+               size=9.0, family="Arial", color=color, anchor="middle")
+
+
 def render_document(b, doc: Document, opts: RenderOptions | None = None,
                     selection: Selection | None = None):
     opts = opts or RenderOptions()
@@ -491,6 +555,8 @@ def render_document(b, doc: Document, opts: RenderOptions | None = None,
         draw_arrow(b, arrow, doc)
     for tb in doc.timebreaks:
         draw_timebreak(b, tb, doc)
+    for measurement in doc.measurements:
+        draw_measurement(b, measurement, doc)
 
     if selection is not None and doc.rows:
         sel = selection.normalized()

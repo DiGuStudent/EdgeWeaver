@@ -19,6 +19,7 @@ from PyQt6.QtTest import QTest  # noqa: E402
 from PyQt6.QtWidgets import QApplication  # noqa: E402
 
 from edgeweaver.mainwindow import MainWindow  # noqa: E402
+from edgeweaver.tim_format import load_tim  # noqa: E402
 
 SAMPLES = Path(os.environ.get(
     "EDGEWEAVER_SAMPLES", str(ROOT / "samples")))
@@ -122,6 +123,179 @@ class UiTests(unittest.TestCase):
             self.win.undo_stack.undo()
             self.assertEqual(len(self.win.doc.arrows), count)
 
+
+    def test_arrow_keyboard_pixel_nudge(self):
+        from edgeweaver.model import arrow_pixel_offset
+        from edgeweaver.renderer import arrow_geometry
+
+        src = SAMPLES / "2-3-2.tim"
+        with tempfile.TemporaryDirectory() as td:
+            copy = Path(td) / "nudge.tim"
+            shutil.copyfile(src, copy)
+            self.win.open_document(str(copy))
+            canvas = self.win.canvas
+            canvas.selected_arrow = 0
+            canvas.setFocus()
+
+            def src():
+                # Undo/redo and push_edit replace the document object, so
+                # always read the current one.
+                doc = self.win.doc
+                return arrow_geometry(doc, doc.arrows[0]).src
+
+            start = src()
+
+            QTest.keyClick(canvas, Qt.Key.Key_Right)
+            self.app.processEvents()
+            moved = src()
+            self.assertAlmostEqual(moved[0] - start[0], 1.0)
+            self.assertAlmostEqual(moved[1] - start[1], 0.0)
+
+            QTest.keyClick(canvas, Qt.Key.Key_Up, Qt.KeyboardModifier.ShiftModifier)
+            self.app.processEvents()
+            moved = src()
+            self.assertAlmostEqual(moved[0] - start[0], 1.0)
+            self.assertAlmostEqual(moved[1] - start[1], -10.0)
+            self.assertEqual(arrow_pixel_offset(self.win.doc.arrows[0]),
+                             (1.0, -10.0))
+            self.assertEqual(self.win.undo_stack.undoText(), "Nudge arrow")
+
+            # the offset survives a save/reload cycle
+            self.assertTrue(self.win.save_document())
+            back = load_tim(copy)
+            self.assertEqual(arrow_pixel_offset(back.arrows[0]), (1.0, -10.0))
+            self.assertAlmostEqual(arrow_geometry(back, back.arrows[0]).src[1],
+                                   start[1] - 10.0)
+
+            # both nudges are undoable
+            self.win.undo_stack.undo()
+            self.win.undo_stack.undo()
+            self.assertEqual(arrow_pixel_offset(self.win.doc.arrows[0]),
+                             (0.0, 0.0))
+
+    def test_measure_tool_creates_measurement(self):
+        from unittest.mock import patch
+
+        from PyQt6.QtWidgets import QInputDialog
+
+        src = SAMPLES / "2-3-2.tim"
+        with tempfile.TemporaryDirectory() as td:
+            copy = Path(td) / "measure.tim"
+            shutil.copyfile(src, copy)
+            self.win.open_document(str(copy))
+            canvas = self.win.canvas
+            doc = self.win.doc
+            self.win.set_tool("measure")
+
+            with patch.object(QInputDialog, "getText",
+                              return_value=("建立时间 = 5 ns", True)):
+                a = QPoint(int(doc.cycle_to_x(3)),
+                           int(doc.row_top(0) + doc.signal_height / 2))
+                b = QPoint(int(doc.cycle_to_x(6)),
+                           int(doc.row_top(1) + doc.signal_height / 2))
+                QTest.mouseClick(canvas, Qt.MouseButton.LeftButton, pos=a)
+                QTest.mouseClick(canvas, Qt.MouseButton.LeftButton, pos=b)
+
+            measurements = self.win.doc.measurements
+            self.assertEqual(len(measurements), 1)
+            self.assertEqual(measurements[0].src_signal, doc.rows[0].name)
+            self.assertEqual(measurements[0].src_cycle, 3)
+            self.assertEqual(measurements[0].dst_signal, doc.rows[1].name)
+            self.assertEqual(measurements[0].dst_cycle, 6)
+            self.assertEqual(measurements[0].text, "建立时间 = 5 ns")
+            self.assertEqual(self.win.undo_stack.undoText(), "Add measurement")
+            self.win.undo_stack.undo()
+            self.assertEqual(len(self.win.doc.measurements), 0)
+
+    def test_measurement_select_and_delete(self):
+        from edgeweaver.model import Measurement
+
+        src = SAMPLES / "2-3-2.tim"
+        with tempfile.TemporaryDirectory() as td:
+            copy = Path(td) / "measure_select.tim"
+            shutil.copyfile(src, copy)
+            self.win.open_document(str(copy))
+            canvas = self.win.canvas
+            doc = self.win.doc
+            doc.arrows.clear()
+            doc.add_measurement(Measurement("CEB", 3, "MC", 7, "t = 5 ns"))
+            canvas.update()
+
+            x = (doc.cycle_to_x(3) + doc.cycle_to_x(7)) / 2.0
+            y = (doc.row_top(0) + doc.row_top(1) + doc.signal_height) / 2.0
+            QTest.mouseClick(canvas, Qt.MouseButton.LeftButton,
+                             pos=QPoint(int(x), int(y)))
+            self.assertEqual(canvas.selected_measurement, 0)
+
+            QTest.keyClick(canvas, Qt.Key.Key_Delete)
+            self.assertEqual(len(self.win.doc.measurements), 0)
+            self.assertEqual(self.win.undo_stack.undoText(),
+                             "Delete measurement")
+            self.win.undo_stack.undo()
+            self.assertEqual(len(self.win.doc.measurements), 1)
+
+    def test_measurement_height_drag_keyboard_color(self):
+        from unittest.mock import patch
+
+        from PyQt6.QtGui import QColor
+        from PyQt6.QtWidgets import QColorDialog
+
+        from edgeweaver.model import Measurement
+        from edgeweaver.renderer import measurement_geometry
+
+        src = SAMPLES / "2-3-2.tim"
+        with tempfile.TemporaryDirectory() as td:
+            copy = Path(td) / "measure_move.tim"
+            shutil.copyfile(src, copy)
+            self.win.open_document(str(copy))
+            canvas = self.win.canvas
+            doc = self.win.doc
+            doc.arrows.clear()
+            doc.add_measurement(Measurement("CEB", 3, "MC", 7, "t"))
+            canvas.update()
+
+            cx = (doc.cycle_to_x(3) + doc.cycle_to_x(7)) / 2.0
+            QTest.mouseClick(canvas, Qt.MouseButton.LeftButton,
+                             pos=QPoint(int(cx), 50))
+            self.assertEqual(canvas.selected_measurement, 0)
+
+            QTest.keyClick(canvas, Qt.Key.Key_Up)
+            self.assertEqual(self.win.doc.measurements[0].y, 49)
+            self.assertEqual(self.win.undo_stack.undoText(), "Nudge measurement")
+            QTest.keyClick(canvas, Qt.Key.Key_Up,
+                           Qt.KeyboardModifier.ShiftModifier)
+            self.assertEqual(self.win.doc.measurements[0].y, 39)
+            QTest.keyClick(canvas, Qt.Key.Key_Right)
+            self.assertEqual(self.win.doc.measurements[0].dx, 1.0)
+            # raise it above the signal rows: the guide lines grow upward
+            QTest.keyClick(canvas, Qt.Key.Key_Up,
+                           Qt.KeyboardModifier.ShiftModifier)
+            QTest.keyClick(canvas, Qt.Key.Key_Up,
+                           Qt.KeyboardModifier.ShiftModifier)
+            self.assertEqual(self.win.doc.measurements[0].y, 19)
+
+            geom = measurement_geometry(self.win.doc,
+                                        self.win.doc.measurements[0])
+            self.assertEqual(geom.top, 19)
+            self.assertEqual(geom.bottom,
+                             self.win.doc.row_top(1) + self.win.doc.signal_height)
+
+            # drag the dimension line down by 40 px
+            QTest.mousePress(canvas, Qt.MouseButton.LeftButton,
+                             pos=QPoint(int(cx) + 1, 19))
+            QTest.mouseMove(canvas, QPoint(int(cx) + 1, 59))
+            QTest.mouseRelease(canvas, Qt.MouseButton.LeftButton,
+                               pos=QPoint(int(cx) + 1, 59))
+            self.assertEqual(self.win.doc.measurements[0].y, 59)
+            self.assertEqual(self.win.undo_stack.undoText(), "Move measurement")
+            self.win.undo_stack.undo()
+            self.assertEqual(self.win.doc.measurements[0].y, 19)
+
+            with patch.object(QColorDialog, "getColor",
+                              return_value=QColor("#c00000")):
+                canvas._choose_measure_color(0)
+            self.assertEqual(self.win.doc.measurements[0].color, "#c00000")
+            self.assertEqual(self.win.undo_stack.undoText(), "Measurement color")
 
     def test_arrow_snaps_to_signal_edges(self):
         src = SAMPLES / "2-3-2.tim"
