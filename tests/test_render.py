@@ -449,6 +449,162 @@ class RenderTests(unittest.TestCase):
         self.assertTrue(any(abs(x - x1) < 0.01 for x, _ in verticals))
         self.assertTrue(any(abs(x - x5) < 0.01 for x, _ in verticals))
 
+    def test_bus_slanted_transition(self):
+        from edgeweaver.model import DATA_TAIL, Document, Row
+        from edgeweaver.renderer import RenderOptions, render_document
+
+        class Backend:
+            def __init__(self):
+                self.lines = []
+
+            def line(self, x1, y1, x2, y2, **kw):
+                self.lines.append((x1, y1, x2, y2))
+
+            def rect(self, *args, **kwargs):
+                pass
+
+            def polygon(self, *args, **kwargs):
+                pass
+
+            def cubic(self, *args, **kwargs):
+                pass
+
+            def text(self, *args, **kwargs):
+                pass
+
+        doc = Document()
+        doc.slots = 8
+        doc.slot_width = 30
+        doc.name_width = 70
+        doc.signal_height = 16
+        row = Row("BUS", "data", "2244" + "0" * 4, DATA_TAIL)
+        row.edge_style = "slanted"
+        row.edge_width = 8
+        doc.rows = [row]
+        doc.ensure_arrays()
+
+        backend = Backend()
+        render_document(backend, doc, RenderOptions())
+        x2 = doc.slot_to_x(2)
+        top = doc.row_top(0)
+        h = doc.signal_height
+        # two different values cross like an X
+        self.assertTrue(any(
+            abs(a - (x2 - 4)) < 0.01 and abs(b - (top + h)) < 0.01
+            and abs(c - (x2 + 4)) < 0.01 and abs(d - top) < 0.01
+            for a, b, c, d in backend.lines))
+        self.assertTrue(any(
+            abs(a - (x2 - 4)) < 0.01 and abs(b - top) < 0.01
+            and abs(c - (x2 + 4)) < 0.01 and abs(d - (top + h)) < 0.01
+            for a, b, c, d in backend.lines))
+        # no vertical separator across the bus band at that boundary
+        self.assertFalse(any(
+            abs(a - c) < 0.01 and abs(a - x2) < 0.01
+            and abs(b - top) < 0.01 and abs(d - (top + h)) < 0.01
+            for a, b, c, d in backend.lines))
+
+    def test_bus_slanted_override_boundaries(self):
+        from edgeweaver.model import BusValue, DATA_TAIL, Document, Row
+        from edgeweaver.renderer import RenderOptions, render_document
+
+        class Backend:
+            def __init__(self):
+                self.lines = []
+
+            def line(self, x1, y1, x2, y2, **kw):
+                self.lines.append((x1, y1, x2, y2))
+
+            def rect(self, *args, **kwargs):
+                pass
+
+            def polygon(self, *args, **kwargs):
+                pass
+
+            def cubic(self, *args, **kwargs):
+                pass
+
+            def text(self, *args, **kwargs):
+                pass
+
+        doc = Document()
+        doc.slots = 8
+        doc.slot_width = 30
+        doc.name_width = 70
+        doc.signal_height = 16
+        row = Row("BUS", "data", "4" * 8, DATA_TAIL)
+        row.edge_style = "slanted"
+        row.edge_width = 8
+        doc.rows = [row]
+        doc.ensure_arrays()
+        doc.bus_values = [BusValue("BUS", 2, 4, "8h'1a")]
+
+        backend = Backend()
+        render_document(backend, doc, RenderOptions())
+        top = doc.row_top(0)
+        h = doc.signal_height
+        for edge in (2, 4):
+            ex = doc.slot_to_x(edge)
+            self.assertTrue(any(
+                abs(a - (ex - 4)) < 0.01 and abs(b - top) < 0.01
+                and abs(c - (ex + 4)) < 0.01 and abs(d - (top + h)) < 0.01
+                for a, b, c, d in backend.lines))
+            self.assertFalse(any(
+                abs(a - c) < 0.01 and abs(a - ex) < 0.01
+                and abs(b - top) < 0.01 and abs(d - (top + h)) < 0.01
+                for a, b, c, d in backend.lines))
+
+    def test_analog_row_waveform(self):
+        from edgeweaver.model import DATA_TAIL, Document, Row
+        from edgeweaver.renderer import RenderOptions, render_document
+
+        class Backend:
+            def __init__(self):
+                self.lines = []
+                self.texts = []
+
+            def line(self, x1, y1, x2, y2, **kw):
+                self.lines.append((x1, y1, x2, y2))
+
+            def rect(self, *args, **kwargs):
+                pass
+
+            def polygon(self, *args, **kwargs):
+                pass
+
+            def cubic(self, *args, **kwargs):
+                pass
+
+            def text(self, x, y, s, **kw):
+                self.texts.append(s)
+
+        doc = Document()
+        doc.slots = 4
+        doc.slot_width = 30
+        doc.name_width = 70
+        doc.signal_height = 16
+        row = Row("ADC", "analog", "0" * 600, DATA_TAIL)
+        row.samples = [0.0, 1.0, 0.5, 0.5]
+        row.sample_min = 0.0
+        row.sample_max = 1.0
+        doc.rows = [row]
+        doc.ensure_arrays()
+
+        backend = Backend()
+        render_document(backend, doc, RenderOptions())
+        x0 = doc.wave_x0 + 0.5 * doc.slot_width
+        top = doc.row_top(0)
+        bottom = top + doc.signal_height
+        mid = top + doc.signal_height / 2.0
+        # first segment rises from the bottom to the top
+        self.assertTrue(any(
+            abs(a - x0) < 0.01 and abs(b - bottom) < 0.01
+            and abs(c - (x0 + doc.slot_width)) < 0.01 and abs(d - top) < 0.01
+            for a, b, c, d in backend.lines))
+        # second segment falls to mid-level
+        self.assertTrue(any(
+            abs(b - top) < 0.01 and abs(d - mid) < 0.01
+            for a, b, c, d in backend.lines))
+
     def test_pixel_geometry_2_3_2(self):
         doc = load_tim(SAMPLES / "2-3-2.tim")
         with tempfile.TemporaryDirectory() as td:

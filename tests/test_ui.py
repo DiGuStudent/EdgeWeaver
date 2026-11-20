@@ -193,6 +193,51 @@ class UiTests(unittest.TestCase):
                                  "Set selection")
                 self.win.undo_stack.undo()
 
+    def test_add_analog_row(self):
+        from unittest.mock import patch
+
+        from edgeweaver.dialogs import AnalogDialog
+
+        src = SAMPLES / "2-3-2.tim"
+        with tempfile.TemporaryDirectory() as td:
+            copy = Path(td) / "analog.tim"
+            shutil.copyfile(src, copy)
+            self.win.open_document(str(copy))
+            count = len(self.win.doc.rows)
+            with patch.object(AnalogDialog, "ask", return_value={
+                    "name": "ADC", "samples": [0.0, 1.0, 0.5],
+                    "min": 0.0, "max": 1.0}):
+                self.win.add_analog_row()
+            row = self.win.doc.rows[-1]
+            self.assertEqual(len(self.win.doc.rows), count + 1)
+            self.assertEqual(row.kind, "analog")
+            self.assertEqual(row.samples, [0.0, 1.0, 0.5])
+            self.assertEqual(self.win.undo_stack.undoText(), "Add analog")
+            self.win.undo_stack.undo()
+            self.assertEqual(len(self.win.doc.rows), count)
+
+    def test_bus_transition_edge_style(self):
+        from edgeweaver.dialogs import RowPropertiesDialog
+
+        src = SAMPLES / "2-3-2.tim"
+        with tempfile.TemporaryDirectory() as td:
+            copy = Path(td) / "bus_edge.tim"
+            shutil.copyfile(src, copy)
+            self.win.open_document(str(copy))
+            bus_index = next(i for i, row in enumerate(self.win.doc.rows)
+                             if self.win.doc.is_bus(row))
+            self.win.doc.rows[bus_index].edge_width = 0
+            self.win.set_row_edge_style(bus_index, "slanted")
+            self.assertEqual(self.win.doc.rows[bus_index].edge_width, 6.0)
+            self.assertEqual(self.win.doc.rows[bus_index].edge_style, "slanted")
+            self.assertEqual(self.win.undo_stack.undoText(), "Transition edge")
+            self.win.undo_stack.undo()
+            self.assertEqual(self.win.doc.rows[bus_index].edge_style, "ideal")
+
+            dialog = RowPropertiesDialog(self.win.doc, bus_index)
+            self.assertIsNotNone(dialog.edge_combo)
+            dialog.deleteLater()
+
     def test_bus_value_double_click_and_selection(self):
         from unittest.mock import patch
 

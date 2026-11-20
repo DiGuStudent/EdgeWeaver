@@ -117,6 +117,10 @@ class Row:
     # Vertical (ideal) or slanted (non-ideal) transition edges.
     edge_style: str = "ideal"
     edge_width: float = 6.0
+    # Analog rows: one sample per slot, scaled between sample_min/sample_max.
+    samples: list[float] = field(default_factory=list)
+    sample_min: float = 0.0
+    sample_max: float = 1.0
 
     def clone(self) -> "Row":
         return copy.deepcopy(self)
@@ -292,6 +296,8 @@ class Document:
             return "Separator"
         if row.kind == "clock":
             return "Clock"
+        if row.kind == "analog":
+            return "Analog"
         if row.kind == "raw":
             return "Raw"
         return "Bus" if self.is_bus(row) else "Signal"
@@ -428,7 +434,7 @@ class Document:
         if not (0 <= row_index < len(self.rows)):
             return False
         row = self.rows[row_index]
-        if row.kind == "separator":
+        if row.kind in ("separator", "analog"):
             return False
         lo = max(0, min(start_slot, end_slot))
         hi = min(self.slots - 1, max(start_slot, end_slot))

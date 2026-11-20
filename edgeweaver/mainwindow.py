@@ -33,8 +33,8 @@ from PyQt6.QtWidgets import (
 )
 
 from .canvas import TimingCanvas
-from .dialogs import (AnnotationsDialog, ArrowDialog, DocSettingsDialog,
-                      RowDialog, RowPropertiesDialog)
+from .dialogs import (AnalogDialog, AnnotationsDialog, ArrowDialog,
+                      DocSettingsDialog, RowDialog, RowPropertiesDialog)
 from .emf_export import export_emf
 from .exporters import (
     export_csv,
@@ -50,6 +50,7 @@ from .model import (
     Document,
     Row,
     SEPARATOR_REST,
+    STATE_LEN,
     make_clock_state,
     set_arrow_offset,
 )
@@ -232,6 +233,7 @@ class MainWindow(QMainWindow):
         add_menu.addAction(self._make_action("Add &Clock...", lambda: self.add_row("clock")))
         add_menu.addAction(self._make_action("Add &Signal...", lambda: self.add_row("signal")))
         add_menu.addAction(self._make_action("Add &Bus...", lambda: self.add_row("bus")))
+        add_menu.addAction(self._make_action("Add &Analog...", self.add_analog_row))
         add_menu.addAction(self._make_action("Insert Se&parator", lambda: self.add_row("separator")))
         add_menu.addSeparator()
         add_menu.addAction(self._make_action("Add &Text/Label...", lambda: self.set_tool("text")))
@@ -524,6 +526,8 @@ class MainWindow(QMainWindow):
             base = "Default Signal"
         elif kind == "bus":
             base = "Default Bus"
+        elif kind == "analog":
+            base = "Analog"
         else:
             return "separator"
         names = {r.name for r in self.doc.rows}
@@ -554,6 +558,40 @@ class MainWindow(QMainWindow):
         new_index = self.doc.add_row(row, index)
         self.push_edit(f"Add {kind}", before, self.doc.clone())
         self.canvas.selection = Selection(new_index, 0, 0)
+        self.canvas.update()
+
+    def add_analog_row(self):
+        result = AnalogDialog.ask(self, self._default_name("analog"))
+        if result is None:
+            return
+        before = self.doc.clone()
+        row = Row(result["name"], "analog", "0" * STATE_LEN, DATA_TAIL)
+        row.samples = result["samples"]
+        row.sample_min = result["min"]
+        row.sample_max = result["max"]
+        new_index = self.doc.add_row(row)
+        self.push_edit("Add analog", before, self.doc.clone())
+        self.canvas.selection = Selection(new_index, 0, 0)
+        self.canvas.update()
+
+    def edit_analog(self, index: int):
+        if not (0 <= index < len(self.doc.rows)):
+            return
+        row = self.doc.rows[index]
+        if row.kind != "analog":
+            return
+        result = AnalogDialog.ask(
+            self, row.name, row.samples, row.sample_min, row.sample_max,
+            editing=True)
+        if result is None:
+            return
+        before = self.doc.clone()
+        row.samples = result["samples"]
+        row.sample_min = result["min"]
+        row.sample_max = result["max"]
+        row.raw = None
+        self.doc.touch()
+        self.push_edit("Edit analog samples", before, self.doc.clone())
         self.canvas.update()
 
     def rename_row(self, index: int):
@@ -700,6 +738,27 @@ class MainWindow(QMainWindow):
     def edit_selected_row_properties(self):
         self.edit_row_properties(self._selected_row())
 
+    def set_row_edge_style(self, index: int, style: str) -> None:
+        if style not in ("ideal", "slanted"):
+            return
+        if not (0 <= index < len(self.doc.rows)):
+            return
+        row = self.doc.rows[index]
+        if row.kind not in ("data", "clock") or row.edge_style == style:
+            return
+        before = self.doc.clone()
+        row.edge_style = style
+        if style == "slanted" and float(row.edge_width) <= 0.0:
+            row.edge_width = 6.0
+        row.raw = None
+        self.doc.touch()
+        self.push_edit("Transition edge", before, self.doc.clone())
+        self.status_message(
+            f"{row.name}: {'slanted' if style == 'slanted' else 'vertical'} edge")
+        # Force a full repaint: a popup menu can leave the exposed canvas
+        # backing store showing the previous vertical separators.
+        self.canvas.repaint()
+
     def edit_row_properties(self, index: int):
         if not (0 <= index < len(self.doc.rows)):
             self.status_message("Select a row first")
@@ -716,7 +775,7 @@ class MainWindow(QMainWindow):
             return
         before = self.doc.clone()
         row = self.doc.rows[index]
-        if row.kind in ("data", "clock") and not self.doc.is_bus(row):
+        if row.kind in ("data", "clock"):
             row.edge_style = values["edge_style"]
             row.edge_width = values["edge_width"]
             row.raw = None
@@ -730,7 +789,7 @@ class MainWindow(QMainWindow):
                 row = self.doc.rows[index]
         self.doc.touch()
         self.push_edit("Row properties", before, self.doc.clone())
-        self.canvas.update()
+        self.canvas.repaint()
         self.status_message(f"Updated {row.name}")
 
     def set_tool(self, tool: str):

@@ -295,7 +295,7 @@ class TimingCanvas(QWidget):
         grid = self.doc.x_to_cycle(x)
         if not (0 <= row < len(self.doc.rows)):
             return grid, "grid"
-        if self.doc.rows[row].kind in ("separator", "raw"):
+        if self.doc.rows[row].kind in ("separator", "raw", "analog"):
             return grid, "grid"
         edge, dist = self.doc.nearest_edge(row, x)
         tol = min(12.0 / max(self.zoom, 0.01), self.doc.slot_width * 0.75)
@@ -983,6 +983,23 @@ class TimingCanvas(QWidget):
         if row < 0:
             menu.addAction("Document Settings...", self.window.document_settings)
         else:
+            row_obj = self.doc.rows[row]
+            if row_obj.kind in ("data", "clock"):
+                edge_menu = menu.addMenu("Transition Edge")
+                for label, style in (("Vertical (Ideal)", "ideal"),
+                                     ("Slanted (Non-ideal)", "slanted")):
+                    action = edge_menu.addAction(label)
+                    if action is not None:
+                        action.setCheckable(True)
+                        action.setChecked(row_obj.edge_style == style)
+                        action.triggered.connect(
+                            lambda checked=False, s=style, r=row:
+                            self.window.set_row_edge_style(r, s))
+                menu.addSeparator()
+            if row_obj.kind == "analog":
+                menu.addAction("Edit Analog Samples...",
+                               lambda: self.window.edit_analog(row))
+                menu.addSeparator()
             menu.addAction("Rename Row...", lambda: self.window.rename_row(row))
             menu.addAction("Signal/Clock Properties...",
                            lambda: self.window.edit_row_properties(row))

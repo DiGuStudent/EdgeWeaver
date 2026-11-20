@@ -34,6 +34,7 @@ from .model import (
 TAB5 = "\t\t\t\t\t"
 DATA_PREFIX = "DATA_0_."
 CLOCK_PREFIX = "CLK_0_."
+ANA_PREFIX = "ANA_0_."
 
 # The legacy format is ANSI-oriented.  Chinese Windows stores text as GBK;
 # Western Windows stores it as a single-byte codepage.  Files are read with a
@@ -125,6 +126,14 @@ def _parse_row(record: str) -> Row:
         if len(state) < STATE_LEN:
             state = state + "0" * (STATE_LEN - len(state))
         return Row(name or "Clock", "clock", state, tail or CLOCK_TAIL, raw=record)
+    if rest.startswith(ANA_PREFIX):
+        body = rest[len(ANA_PREFIX):]
+        state = body[:STATE_LEN]
+        tail = body[STATE_LEN:]
+        if len(state) < STATE_LEN:
+            state = state + "0" * (STATE_LEN - len(state))
+        return Row(name or "Analog", "analog", state, tail or DATA_TAIL,
+                   raw=record)
     if rest.startswith("SEP_"):
         return Row(name or "separator", "separator", "", "", sep_rest=rest, raw=record)
     return Row(name or "Row", "raw", "", "", sep_rest=rest, raw=record)
@@ -267,16 +276,51 @@ def _parse_bus_value(record: str) -> BusValue | None:
         return None
 
 
-def _split_bus_values(entries: list[str]):
+# Analog sample data also lives in list4, one ASCII JSON entry per row.
+ANALOG_PREFIX = "EWA|"
+
+
+def _serialize_analog(row: Row) -> str:
+    payload = {
+        "v": 1,
+        "row": row.name,
+        "samples": [float(value) for value in row.samples],
+        "min": float(row.sample_min),
+        "max": float(row.sample_max),
+    }
+    return ANALOG_PREFIX + json.dumps(payload, ensure_ascii=True,
+                                      separators=(",", ":"))
+
+
+def _parse_analog(record: str):
+    if not record.startswith(ANALOG_PREFIX):
+        return None
+    try:
+        payload = json.loads(record[len(ANALOG_PREFIX):])
+        samples = [float(value) for value in payload.get("samples", [])]
+        return (str(payload["row"]), samples,
+                float(payload.get("min", 0.0)),
+                float(payload.get("max", 1.0)))
+    except (ValueError, KeyError, TypeError):
+        return None
+
+
+def _split_list4(entries: list[str]):
     kept: list[str] = []
     values: list[BusValue] = []
+    analogs: dict[str, tuple[list[float], float, float]] = {}
     for entry in entries:
         value = _parse_bus_value(entry)
-        if value is None:
-            kept.append(entry)
-        else:
+        if value is not None:
             values.append(value)
-    return kept, values
+            continue
+        analog = _parse_analog(entry)
+        if analog is not None:
+            name, samples, minimum, maximum = analog
+            analogs[name] = (samples, minimum, maximum)
+            continue
+        kept.append(entry)
+    return kept, values, analogs
 
 
 def load_tim(path: str | Path) -> Document:
@@ -310,7 +354,13 @@ def load_tim(path: str | Path) -> Document:
     arrows = [a for a in (_parse_arrow(s) for s in lists[4]) if a is not None]
     timebreaks = [t for t in (_parse_timebreak(s) for s in lists[5]) if t is not None]
     list3, measurements = _split_measurements(list(lists[2]))
-    list4, bus_values = _split_bus_values(list(lists[3]))
+    list4, bus_values, analog_data = _split_list4(list(lists[3]))
+    for row in rows:
+        if row.kind == "analog" and row.name in analog_data:
+            samples, minimum, maximum = analog_data[row.name]
+            row.samples = samples
+            row.sample_min = minimum
+            row.sample_max = maximum
 
     doc = Document(
         magic=magic,
@@ -360,6 +410,8 @@ def _serialize_row(row: Row) -> str:
         return prefix + CLOCK_PREFIX + state + tail
     if not tail.startswith("."):
         tail = DATA_TAIL
+    if row.kind == "analog":
+        return prefix + ANA_PREFIX + state + tail
     return prefix + DATA_PREFIX + state + tail
 
 
@@ -402,8 +454,10 @@ def dumps_tim(doc: Document) -> bytes:
             [_serialize_label(l) for l in doc.labels],
             list(doc.list3) + [_serialize_measurement(m)
                                for m in doc.measurements],
-            list(doc.list4) + [_serialize_bus_value(v)
-                               for v in doc.bus_values],
+            list(doc.list4)
+            + [_serialize_bus_value(v) for v in doc.bus_values]
+            + [_serialize_analog(row) for row in doc.rows
+               if row.kind == "analog" and row.samples],
             [_serialize_arrow(a) for a in doc.arrows],
             [_serialize_timebreak(t) for t in doc.timebreaks],
         ]

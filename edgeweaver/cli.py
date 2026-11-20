@@ -24,6 +24,7 @@ from .model import (  # noqa: E402
     DATA_TAIL,
     LABEL_TAIL,
     SEPARATOR_REST,
+    STATE_LEN,
     Arrow,
     BusValue,
     Document,
@@ -143,6 +144,31 @@ def build_document(spec: dict) -> Document:
                            "01234Z" if is_bus else "01Z",
                            "4" if is_bus else "0", where)
             row = Row(name, "data", state, DATA_TAIL)
+        elif kind == "analog":
+            raw_samples = item.get("samples")
+            if not isinstance(raw_samples, list) or not raw_samples:
+                raise SpecError(
+                    f"{where}: analog rows need a non-empty 'samples' array")
+            try:
+                samples = [float(value) for value in raw_samples]
+            except (TypeError, ValueError) as exc:
+                raise SpecError(f"{where}: samples must be numbers") from exc
+            if len(samples) < doc.slots:
+                samples += [samples[-1]] * (doc.slots - len(samples))
+            samples = samples[:doc.slots]
+            try:
+                low = float(item["min"]) if "min" in item else min(samples)
+                high = float(item["max"]) if "max" in item else max(samples)
+            except (TypeError, ValueError) as exc:
+                raise SpecError(f"{where}: min/max must be numbers") from exc
+            if high <= low:
+                high = low + 1.0
+            row = Row(name, "analog", "0" * STATE_LEN, DATA_TAIL)
+            row.samples = samples
+            row.sample_min = low
+            row.sample_max = high
+            rows.append(row)
+            continue
         else:
             raise SpecError(f"{where}: unknown row type {kind!r}")
 

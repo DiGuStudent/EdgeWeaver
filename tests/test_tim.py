@@ -154,6 +154,29 @@ class TimFormatTests(unittest.TestCase):
             self.assertEqual(again.rows[1].kind, "data")
             self.assertEqual(again.ints4[:3], [20, 30, 16])
 
+    def test_analog_extension_roundtrip(self):
+        doc = Document()
+        doc.slots = 4
+        doc.rows = [Row("ADC", "analog", "0" * 600, "")]
+        row = doc.rows[0]
+        row.samples = [0.0, 1.0, 0.5, 0.25]
+        row.sample_min = -1.0
+        row.sample_max = 3.0
+        doc.ensure_arrays()
+        doc.touch()
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "analog.tim"
+            save_tim(doc, path)
+            back = load_tim(path)
+            self.assertEqual(len(back.rows), 1)
+            self.assertEqual(back.rows[0].kind, "analog")
+            self.assertEqual(back.rows[0].samples, [0.0, 1.0, 0.5, 0.25])
+            self.assertEqual(back.rows[0].sample_min, -1.0)
+            self.assertEqual(back.rows[0].sample_max, 3.0)
+            data = path.read_bytes()
+            save_tim(back, path)
+            self.assertEqual(path.read_bytes(), data)
+
     def test_bus_value_extension_roundtrip(self):
         doc = load_tim(SAMPLES / "2-3-2.tim")
         bus = next(row for row in doc.rows if doc.is_bus(row))

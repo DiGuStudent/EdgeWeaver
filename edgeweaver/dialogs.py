@@ -264,6 +264,85 @@ class AnnotationsDialog(QDialog):
             self._deleted()
 
 
+class AnalogDialog(QDialog):
+    """Create/edit an analog sample row."""
+
+    def __init__(self, parent=None, name: str = "Analog",
+                 samples: list[float] | None = None,
+                 minimum: float | None = None,
+                 maximum: float | None = None, editing: bool = False):
+        super().__init__(parent)
+        self.setWindowTitle("Edit Analog Row" if editing else "Add Analog Row")
+        self._values = None
+        form = QFormLayout(self)
+        self.name_edit = QLineEdit(name)
+        self.name_edit.setReadOnly(editing)
+        values = samples or [0.0, 1.0, 0.5, 1.0]
+        self.samples_edit = QLineEdit(
+            ", ".join(f"{float(value):g}" for value in values))
+        self.min_edit = QLineEdit(
+            "" if minimum is None else f"{float(minimum):g}")
+        self.max_edit = QLineEdit(
+            "" if maximum is None else f"{float(maximum):g}")
+        form.addRow("Name:", self.name_edit)
+        form.addRow("Samples:", self.samples_edit)
+        form.addRow("Min:", self.min_edit)
+        form.addRow("Max:", self.max_edit)
+        form.addRow(QLabel(
+            "Samples are comma/space separated; Min/Max may be left empty "
+            "to infer them from the samples."))
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok |
+                                   QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        form.addRow(buttons)
+
+    def accept(self) -> None:
+        name = self.name_edit.text().strip()
+        if not name:
+            QMessageBox.warning(self, "Analog Row", "Name is required.")
+            return
+        parts = [part for part in re.split(r"[,;\s]+",
+                                           self.samples_edit.text().strip())
+                 if part]
+        try:
+            samples = [float(part) for part in parts]
+        except ValueError:
+            QMessageBox.warning(self, "Analog Row",
+                                "Samples must be numbers separated by "
+                                "commas or spaces.")
+            return
+        if not samples:
+            QMessageBox.warning(self, "Analog Row", "At least one sample is required.")
+            return
+        try:
+            minimum = (float(self.min_edit.text())
+                       if self.min_edit.text().strip() else min(samples))
+            maximum = (float(self.max_edit.text())
+                       if self.max_edit.text().strip() else max(samples))
+        except ValueError:
+            QMessageBox.warning(self, "Analog Row", "Min/Max must be numbers.")
+            return
+        if maximum <= minimum:
+            maximum = minimum + 1.0
+        self._values = {"name": name, "samples": samples,
+                        "min": minimum, "max": maximum}
+        super().accept()
+
+    def values(self) -> dict:
+        return self._values
+
+    @classmethod
+    def ask(cls, parent, name: str = "Analog",
+            samples: list[float] | None = None,
+            minimum: float | None = None, maximum: float | None = None,
+            editing: bool = False):
+        dialog = cls(parent, name, samples, minimum, maximum, editing)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            return dialog.values()
+        return None
+
+
 class BusValueDialog(QDialog):
     """Edit the text shown inside a bus segment.
 
@@ -516,8 +595,7 @@ class RowPropertiesDialog(QDialog):
 
         self.edge_combo = None
         self.edge_width = None
-        is_bus = row.kind == "data" and doc.is_bus(row)
-        if row.kind in ("data", "clock") and not is_bus:
+        if row.kind in ("data", "clock"):
             self.edge_combo = QComboBox()
             self.edge_combo.addItem("Vertical (ideal)", "ideal")
             self.edge_combo.addItem("Slanted (non-ideal)", "slanted")

@@ -67,7 +67,7 @@ def export_csv(doc: Document, path: str | Path) -> Path:
         wr = csv.writer(f)
         wr.writerow(["Signal"] + [str(i) for i in range(slots)])
         for row in doc.rows:
-            if row.kind == "separator":
+            if row.kind in ("separator", "analog"):
                 continue
             wr.writerow([row.name] + list(row.padded_state()[:slots]))
     return path
@@ -79,7 +79,7 @@ def export_xml(doc: Document, path: str | Path) -> Path:
     x0 = doc.wave_x0
     sw = doc.slot_width
     for ri, row in enumerate(doc.rows):
-        if row.kind == "separator":
+        if row.kind in ("separator", "analog"):
             continue
         sig = ET.SubElement(root, "signal", {"name": row.name})
         ET.SubElement(sig, "data", {"value": row.padded_state()[: doc.slots]})

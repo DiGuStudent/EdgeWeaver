@@ -7,7 +7,7 @@ EdgeWeaver 是一个 Linux 原生的时序图编辑器，读写 legacy `.tim` �
 ## 已实现功能
 
 - **`.tim` 读写**：版本 011 / 010；未修改的文件加载后再保存可做到**字节级完全一致**。
-- **时序元素**：时钟（Clock）、信号（Signal）、总线（Bus）、分隔符（Separator）。
+- **时序元素**：时钟（Clock）、信号（Signal）、总线（Bus）、模拟采样行（Analog）、分隔符（Separator）。
 - **编辑**：高/低/高阻绘制、总线绘制、擦除、选择与删除单元格；选中区间右键可设为
   1 / 0 / Z / BUS（4）；总线内容可双击或右键编辑（手动文本或
   `2b'11` / `8d'10` / `8h'1a` 这类宽度+进制写法）；在已有总线值中间插入时，
@@ -17,7 +17,11 @@ EdgeWeaver 是一个 Linux 原生的时序图编辑器，读写 legacy `.tim` �
 - **三态信号**：0 / 1 / Z；Z 画在高低电平正中间，工具栏 `Z` 工具或快捷键 `Z` 绘制。
   总线行的高阻段同样画成中间高度的一条横线（不画总线上下轨、阴影和值文本）。
 - **边沿样式**：每行可切换垂直边沿（ideal）或斜边（non-ideal），并可设置斜边宽度；
-  时钟和非总线信号都支持。
+  时钟、信号和总线都支持。总线行还可在右键 `Transition Edge` 中快速切换
+  Vertical / Slanted（按行生效）；总线斜边在两个不同值之间画成交叉的 **X** 形，
+  切换后该行已有分段、Z 边界和 Bus Value 插入边界都会同步重绘。
+- **模拟采样行**：按槽位给出数值（如 ADC 采样），以连续折线显示模拟波形；
+  可设置数值范围 Min/Max，CLI 与 `Add → Analog...` 均可创建，右键可编辑采样。
 - **时钟周期数**：工具栏 `Cycles:` 可直接增减可见时钟周期数，修改后自动重生成所有时钟；
   `Signal/Clock Properties` 还可设置时钟周期、占空比、起始电平。
 - **标注**：文本标签、信号间关系箭头、时间断裂（Time Break）；
@@ -180,6 +184,8 @@ NAME\t\t\t\t\tSEP_0.<separator fields>
 - **总线文字覆盖**：存放在第 4 个辅助字符串表（list4）中，每条以
   `EWB|` 开头、后接 ASCII JSON（`v/row/start/end/text`），在指定槽区间内
   覆盖默认的单字符总线值；不含 `EWB|` 的 list4 条目原样保留。
+- **模拟采样**：行记录使用 `ANA_0_.` 前缀（其余工具可忽略），采样值存于
+  list4 的 `EWA|` ASCII JSON（`v/row/samples/min/max`）。
 - **边沿间隔测量**：存放在第 3 个辅助字符串表（list3）中，每条以
   `EWM|` 开头、后接 ASCII JSON（`v/src/sc/dst/dc/text/suffix/y/dx/color`）。
   `suffix` 为空或 `ns`/`µs`（也接受 `us`）/`ms`；`y` 为刻度线绝对高度（缺省=两行中点）；
@@ -194,13 +200,15 @@ NAME\t\t\t\t\tSEP_0.<separator fields>
 QT_QPA_PLATFORM=offscreen /usr/bin/python3 -m unittest discover -s tests -v
 ```
 
-当前 46 个测试全部通过，包括：
+当前 53 个测试全部通过，包括：
 
 - 4 个真实 `.tim` 的字节级 round-trip；
 - EMF 记录结构、头部帧/设备尺寸、Unicode 文本偏移与字体记录；
 - 名称/波形分栏线默认关闭及显示开关、透明背景 SVG 导出；
 - 选中区间右键设为 1 / 0 / Z / BUS；
 - 总线文字覆盖：双击/右键编辑、`2b'11` 等写法、原值两段/三段拆分、保存/重载；
+- 总线垂直/斜边切换（右键 `Transition Edge`、属性对话框、渲染与撤销）；
+- 总线斜边 X 交叉、模拟采样行折线渲染与保存/重载；
 - 箭头方向键像素微调、撤销与保存/重载；
 - 边沿间隔测量：竖线/双向箭头几何、中文文字、颜色/高度/水平偏移、拖动与方向键、
   保存/重载、GUI 工具；
@@ -220,7 +228,6 @@ QT_QPA_PLATFORM=offscreen /usr/bin/python3 -m unittest discover -s tests -v
 
 - 几何布局与旧版文件一致，但字体度量因平台而异，**不保证像素级一致**。
 - 标签记录中的旋转/角度字段尚未完全解码，当前按水平文本绘制。
-- 总线行的边沿仍按总线带渲染；垂直/斜边切换目前只作用于时钟和非总线信号。
 - `Cycles:` 以第一路时钟的周期为单位；多时钟且周期不同时以第一路为准。
 - 增加 `Cycles` 只重生成时钟；普通信号超出原可见宽度的部分取其 600 槽缓冲中的现有值，
   不会自动填充。
@@ -228,8 +235,8 @@ QT_QPA_PLATFORM=offscreen /usr/bin/python3 -m unittest discover -s tests -v
 - 打印对话框、剪贴板矢量复制尚未实现；EMF 支持文件导出，但尚未支持把 EMF
   直接复制到系统剪贴板。
 - XML 导出遵循 per-signal schema：只包含附着在信号上的标签，自由标签不会写入 XML。
-- XML/CSV 导出不包含边沿间隔测量与总线文字覆盖；EMF/SVG/PNG/PDF 与 `.tim`
-  保存均包含。
+- XML/CSV 导出不包含边沿间隔测量、总线文字覆盖与模拟采样；EMF/SVG/PNG/PDF
+  与 `.tim` 保存均包含。
 
 ## 后续可做
 

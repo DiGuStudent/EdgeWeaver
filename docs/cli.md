@@ -111,11 +111,13 @@ python3 -m edgeweaver.cli convert IN.tim --out OUT.emf --out OUT.png
 | 字段 | 适用 | 说明 |
 |---|---|---|
 | `name` | 全部 | 行名；不可重复，不能含 `.`、Tab、换行 |
-| `type` | 全部 | `clock` / `signal` / `bus` / `separator` |
+| `type` | 全部 | `clock` / `signal` / `bus` / `analog` / `separator` |
 | `state` | signal/bus/clock | 状态字符串，见下 |
 | `period` | clock | 时钟周期（槽数），默认 `2` |
 | `duty` | clock | 占空比，默认 `0.5` |
 | `start_low` | clock | 是否从低电平开始，默认 `true` |
+| `samples` | analog | 每个槽的采样值数组（必填，长度不足时用最后值补齐） |
+| `min`, `max` | analog | 数值范围；省略时由 samples 自动推断 |
 | `edge` | signal/bus/clock | `ideal`（垂直边沿）或 `slanted`（斜边） |
 | `edge_width` | 同上 | 斜边宽度 px，0..40，默认 `6` |
 | `dotted` | separator | 分隔线是否虚线，默认 `true` |
@@ -126,6 +128,7 @@ python3 -m edgeweaver.cli convert IN.tim --out OUT.emf --out OUT.png
 - `signal`：`0` 低、`1` 高、`Z` 高阻（画在中间高度）
 - `bus`：`2` / `3` / `4` 为总线值，`Z` 为高阻，`0`/`1` 也可用
 - `clock`：`0` / `1`；若省略 `state`，由 `period`/`duty`/`start_low` 自动生成
+- `analog`：不使用状态字符，按 `samples` 数组画连续折线（每个槽一个采样点）
 
 `state` 不足 `slots` 位时自动补 `0`（总线补 `4`）；超过 `slots` 的部分不显示，
 但会保留在 600 槽缓冲里。
@@ -328,6 +331,26 @@ python3 -m edgeweaver.cli draw spec.json --out demo.svg --out demo.emf
   "flood": [{"row": "ADDR", "start": 2, "end": 6}]
 }
 ```
+
+### 5.3 模拟采样行（ADC）
+
+```json
+{
+  "slot_width": 30,
+  "slots": 16,
+  "signal_height": 24,
+  "name_width": 70,
+  "rows": [
+    {"name": "ADC", "type": "analog",
+     "samples": [512, 700, 980, 1200, 900, 600, 400, 650,
+                 1000, 1300, 1100, 800, 500, 420, 600, 900],
+     "min": 0, "max": 4095}
+  ]
+}
+```
+
+`samples` 每个槽一个点，按 `min..max` 映射到行高，画成连续折线；
+省略 `min`/`max` 时按采样值自动推断。
 
 ---
 

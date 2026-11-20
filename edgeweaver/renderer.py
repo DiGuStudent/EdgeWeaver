@@ -357,6 +357,28 @@ def draw_digital(b, row: Row, doc: Document, top: float):
                color="#000000", width=1.0)
 
 
+def draw_analog(b, row: Row, doc: Document, top: float):
+    """Continuous sample waveform scaled into the row height."""
+    samples = row.samples
+    if not samples:
+        return
+    low = float(row.sample_min)
+    high = float(row.sample_max)
+    span = high - low if high != low else 1.0
+    h = doc.signal_height
+    x0 = doc.wave_x0
+    sw = doc.slot_width
+    points = []
+    for index in range(min(doc.slots, len(samples))):
+        value = max(low, min(high, float(samples[index])))
+        x = x0 + (index + 0.5) * sw
+        y = top + h * (1.0 - (value - low) / span)
+        points.append((x, y))
+    for start, end in zip(points, points[1:]):
+        b.line(start[0], start[1], end[0], end[1],
+               color="#000000", width=1.0)
+
+
 def _subtract_ranges(intervals, cuts):
     """Return *intervals* with all *cuts* removed (half-open ranges)."""
     result = list(intervals)
@@ -404,7 +426,18 @@ def draw_bus(b, row: Row, doc: Document, top: float, opts: RenderOptions):
         inside_override = any(value.start < start < value.end
                               for value in overrides)
         if start > 0 and not inside_override:
-            b.line(xa, top, xa, top + h, color="#000000", width=1.0)
+            slant = 0.0
+            if row.edge_style == "slanted":
+                slant = max(0.0, min(float(row.edge_width), sw * 0.8))
+            if slant > 0.0:
+                # Two different bus values cross like an X.
+                half = slant / 2.0
+                b.line(xa - half, top, xa + half, top + h,
+                       color="#000000", width=1.0)
+                b.line(xa - half, top + h, xa + half, top,
+                       color="#000000", width=1.0)
+            else:
+                b.line(xa, top, xa, top + h, color="#000000", width=1.0)
         if ch == "Z":
             continue
         # Inserting a value over a sub-range splits the run's default label
@@ -421,11 +454,21 @@ def draw_bus(b, row: Row, doc: Document, top: float, opts: RenderOptions):
                 b.text(cx, top + h * 0.5 + 3.0, ch, size=7.0,
                        family="Arial", color="#808080", anchor="middle")
         # visible separators at the inserted value's boundaries
+        slant = (max(0.0, min(float(row.edge_width), sw * 0.8))
+                 if row.edge_style == "slanted" else 0.0)
         for value in overrides:
             for edge in (value.start, value.end):
                 if start < edge < end:
                     ex = x0 + edge * sw
-                    b.line(ex, top, ex, top + h, color="#000000", width=1.0)
+                    if slant > 0.0:
+                        half = slant / 2.0
+                        b.line(ex - half, top, ex + half, top + h,
+                               color="#000000", width=1.0)
+                        b.line(ex - half, top + h, ex + half, top,
+                               color="#000000", width=1.0)
+                    else:
+                        b.line(ex, top, ex, top + h,
+                               color="#000000", width=1.0)
 
 
 BUS_VALUE_COLOR = "#404040"
@@ -629,6 +672,8 @@ def render_document(b, doc: Document, opts: RenderOptions | None = None,
                    size=10.0, family="Arial", color="#000000")
         if row.kind == "separator":
             draw_separator(b, row, doc, top)
+        elif row.kind == "analog":
+            draw_analog(b, row, doc, top)
         elif doc.is_bus(row):
             draw_bus(b, row, doc, top, opts)
         elif row.kind in ("data", "clock", "raw"):

@@ -144,6 +144,32 @@ class CliTests(unittest.TestCase):
             self.assertIn("建立时间 = 1.5 µs", text)
             self.assertIn('fill="#c00000"', text)
 
+    def test_analog_row(self):
+        spec = {
+            "slot_width": 30,
+            "slots": 4,
+            "signal_height": 16,
+            "name_width": 70,
+            "rows": [
+                {"name": "ADC", "type": "analog",
+                 "samples": [0, 1, 0.5, 0.25], "min": 0, "max": 1},
+            ],
+        }
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "analog.json"
+            path.write_text(json.dumps(spec), encoding="utf-8")
+            tim = Path(td) / "analog.tim"
+            svg = Path(td) / "analog.svg"
+            code, out, err = run(["draw", str(path), "--out", str(tim),
+                                  "--out", str(svg)])
+            self.assertEqual(code, 0, err)
+            doc = load_tim(tim)
+            self.assertEqual(doc.rows[0].kind, "analog")
+            self.assertEqual(doc.rows[0].samples, [0.0, 1.0, 0.5, 0.25])
+            self.assertEqual(doc.rows[0].sample_min, 0.0)
+            self.assertEqual(doc.rows[0].sample_max, 1.0)
+            self.assertIn("<line", svg.read_text(encoding="utf-8"))
+
     def test_convert_existing_tim(self):
         src = SAMPLES / "2-3-2.tim"
         if not src.exists():
