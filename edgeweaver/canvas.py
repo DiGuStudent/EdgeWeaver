@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import random
+
 from PyQt6.QtCore import Qt, QPointF, QRectF, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PyQt6.QtWidgets import QColorDialog, QInputDialog, QMenu, QWidget
@@ -808,6 +810,10 @@ class TimingCanvas(QWidget):
             event.accept()
             return
         if row >= 0 and x >= self.doc.wave_x0:
+            if self.doc.rows[row].kind == "analog":
+                self.window.edit_analog(row)
+                event.accept()
+                return
             run = self._bus_run_at(row, slot)
             if run is not None:
                 start, end, ch = run
@@ -907,6 +913,45 @@ class TimingCanvas(QWidget):
         self.window.push_edit("Clear bus value", before, self.doc.clone())
         self.update()
 
+    def fill_analog_random(self, row_index: int, start: int, end: int) -> None:
+        if not (0 <= row_index < len(self.doc.rows)):
+            return
+        row = self.doc.rows[row_index]
+        if row.kind != "analog":
+            return
+        start = max(0, min(start, end))
+        end = min(self.doc.slots - 1, max(start, end))
+        if end < start:
+            return
+        slots = self.doc.slots
+        samples = list(row.samples)
+        if len(samples) < slots:
+            tail = samples[-1] if samples else float(row.sample_min)
+            samples += [tail] * (slots - len(samples))
+        samples = samples[:slots]
+        low = float(row.sample_min)
+        high = float(row.sample_max)
+        if high <= low:
+            high = low + 1.0
+        step = (high - low) * 0.18
+        value = random.uniform(low, high)
+        state = list(row.padded_state())
+        for index in range(start, end + 1):
+            value += random.uniform(-step, step)
+            value = max(low, min(high, value))
+            samples[index] = value
+            state[index] = "A"
+        before = self.doc.clone()
+        row.samples = samples
+        row.state = "".join(state)
+        row.raw = None
+        self.doc.touch()
+        self.window.push_edit("Random analog", before, self.doc.clone())
+        self.selection = Selection(row_index, start, end)
+        self.window.status_message(
+            f"Random analog waveform in slots {start}..{end}")
+        self.update()
+
     def apply_selection_char(self, char: str) -> None:
         """Set the selected slot range to 1/0/Z/4 (bus)."""
         if self.selection is None:
@@ -957,29 +1002,39 @@ class TimingCanvas(QWidget):
                 and row >= 0 and self.selection.normalized().row == row):
             sel = self.selection.normalized()
             row_obj = self.doc.rows[row]
-            if row_obj.kind != "separator" and self.doc.is_bus(row_obj):
-                state = row_obj.padded_state()
-                current = state[sel.start] if state[sel.start] in "234" else ""
+            if row_obj.kind == "analog":
                 menu.addAction(
-                    "Edit Bus Value...",
-                    lambda: self._edit_bus_value(row_obj.name, sel.start,
-                                                 sel.end + 1, current))
-                has_override = any(
-                    value.row == row_obj.name and value.start < sel.end + 1
-                    and value.end > sel.start
-                    for value in self.doc.bus_values)
-                if has_override:
-                    menu.addAction(
-                        "Clear Bus Value",
-                        lambda: self._clear_bus_value(row_obj.name, sel.start,
-                                                      sel.end + 1))
+                    "Random Analog Waveform",
+                    lambda: self.fill_analog_random(row, sel.start, sel.end))
+                sub = menu.addMenu(f"Set Selection ({sel.start}..{sel.end})")
+                sub.addAction("High (1)", lambda: self.apply_selection_char("1"))
+                sub.addAction("Low (0)", lambda: self.apply_selection_char("0"))
+                sub.addAction("High-Z (Z)", lambda: self.apply_selection_char("Z"))
                 menu.addSeparator()
-            sub = menu.addMenu(f"Set Selection ({sel.start}..{sel.end})")
-            sub.addAction("High (1)", lambda: self.apply_selection_char("1"))
-            sub.addAction("Low (0)", lambda: self.apply_selection_char("0"))
-            sub.addAction("High-Z (Z)", lambda: self.apply_selection_char("Z"))
-            sub.addAction("Bus (4)", lambda: self.apply_selection_char("4"))
-            menu.addSeparator()
+            else:
+                if self.doc.is_bus(row_obj):
+                    state = row_obj.padded_state()
+                    current = state[sel.start] if state[sel.start] in "234" else ""
+                    menu.addAction(
+                        "Edit Bus Value...",
+                        lambda: self._edit_bus_value(row_obj.name, sel.start,
+                                                     sel.end + 1, current))
+                    has_override = any(
+                        value.row == row_obj.name and value.start < sel.end + 1
+                        and value.end > sel.start
+                        for value in self.doc.bus_values)
+                    if has_override:
+                        menu.addAction(
+                            "Clear Bus Value",
+                            lambda: self._clear_bus_value(row_obj.name,
+                                                          sel.start, sel.end + 1))
+                    menu.addSeparator()
+                sub = menu.addMenu(f"Set Selection ({sel.start}..{sel.end})")
+                sub.addAction("High (1)", lambda: self.apply_selection_char("1"))
+                sub.addAction("Low (0)", lambda: self.apply_selection_char("0"))
+                sub.addAction("High-Z (Z)", lambda: self.apply_selection_char("Z"))
+                sub.addAction("Bus (4)", lambda: self.apply_selection_char("4"))
+                menu.addSeparator()
         if row < 0:
             menu.addAction("Document Settings...", self.window.document_settings)
         else:

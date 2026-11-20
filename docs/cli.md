@@ -117,6 +117,7 @@ python3 -m edgeweaver.cli convert IN.tim --out OUT.emf --out OUT.png
 | `duty` | clock | 占空比，默认 `0.5` |
 | `start_low` | clock | 是否从低电平开始，默认 `true` |
 | `samples` | analog | 每个槽的采样值数组（必填，长度不足时用最后值补齐） |
+| `states` | analog | 可选，每槽 `A`/`0`/`1`/`Z`；默认全部 `A`，长度不足用最后字符补齐 |
 | `min`, `max` | analog | 数值范围；省略时由 samples 自动推断 |
 | `edge` | signal/bus/clock | `ideal`（垂直边沿）或 `slanted`（斜边） |
 | `edge_width` | 同上 | 斜边宽度 px，0..40，默认 `6` |
@@ -128,7 +129,8 @@ python3 -m edgeweaver.cli convert IN.tim --out OUT.emf --out OUT.png
 - `signal`：`0` 低、`1` 高、`Z` 高阻（画在中间高度）
 - `bus`：`2` / `3` / `4` 为总线值，`Z` 为高阻，`0`/`1` 也可用
 - `clock`：`0` / `1`；若省略 `state`，由 `period`/`duty`/`start_low` 自动生成
-- `analog`：不使用状态字符，按 `samples` 数组画连续折线（每个槽一个采样点）
+- `analog`：`A` 槽按 `samples` 画模拟折线，`0/1/Z` 槽画数字电平；
+  `states` 省略时全部为 `A`
 
 `state` 不足 `slots` 位时自动补 `0`（总线补 `4`）；超过 `slots` 的部分不显示，
 但会保留在 600 槽缓冲里。
@@ -342,6 +344,7 @@ python3 -m edgeweaver.cli draw spec.json --out demo.svg --out demo.emf
   "name_width": 70,
   "rows": [
     {"name": "ADC", "type": "analog",
+     "states": "AAAAAAZZAAAAZZAA",
      "samples": [512, 700, 980, 1200, 900, 600, 400, 650,
                  1000, 1300, 1100, 800, 500, 420, 600, 900],
      "min": 0, "max": 4095}

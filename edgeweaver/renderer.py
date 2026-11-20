@@ -358,25 +358,55 @@ def draw_digital(b, row: Row, doc: Document, top: float):
 
 
 def draw_analog(b, row: Row, doc: Document, top: float):
-    """Continuous sample waveform scaled into the row height."""
+    """Analog samples for "A" slots, digital 0/1/Z elsewhere."""
     samples = row.samples
-    if not samples:
-        return
     low = float(row.sample_min)
     high = float(row.sample_max)
     span = high - low if high != low else 1.0
     h = doc.signal_height
     x0 = doc.wave_x0
     sw = doc.slot_width
-    points = []
-    for index in range(min(doc.slots, len(samples))):
-        value = max(low, min(high, float(samples[index])))
-        x = x0 + (index + 0.5) * sw
-        y = top + h * (1.0 - (value - low) / span)
-        points.append((x, y))
-    for start, end in zip(points, points[1:]):
-        b.line(start[0], start[1], end[0], end[1],
-               color="#000000", width=1.0)
+    state = row.padded_state()
+    count = doc.slots
+
+    def sample_y(index: int) -> float:
+        value = float(samples[index]) if index < len(samples) else low
+        value = max(low, min(high, value))
+        return top + h * (1.0 - (value - low) / span)
+
+    def level(ch: str) -> float:
+        return wave_level_y(ch, top, h)
+
+    points = {}
+    for index in range(count):
+        ch = state[index]
+        if ch == "A":
+            if samples:
+                points[index] = (x0 + (index + 0.5) * sw, sample_y(index))
+            continue
+        xa = x0 + index * sw
+        xb = xa + sw
+        y = level(ch)
+        b.line(xa, y, xb, y, color="#000000", width=1.0)
+        if index > 0:
+            prev = state[index - 1]
+            if prev != "A" and prev != ch:
+                b.line(xa, level(prev), xa, y, color="#000000", width=1.0)
+    # analog polyline plus half-slot connectors to neighbouring digital levels
+    for index in range(count):
+        point = points.get(index)
+        if point is None:
+            continue
+        nxt = points.get(index + 1)
+        if nxt is not None:
+            b.line(point[0], point[1], nxt[0], nxt[1],
+                   color="#000000", width=1.0)
+        if index > 0 and state[index - 1] != "A":
+            b.line(x0 + index * sw, level(state[index - 1]),
+                   point[0], point[1], color="#000000", width=1.0)
+        if index + 1 < count and state[index + 1] != "A":
+            b.line(point[0], point[1], x0 + (index + 1) * sw,
+                   level(state[index + 1]), color="#000000", width=1.0)
 
 
 def _subtract_ranges(intervals, cuts):

@@ -553,6 +553,72 @@ class RenderTests(unittest.TestCase):
                 and abs(b - top) < 0.01 and abs(d - (top + h)) < 0.01
                 for a, b, c, d in backend.lines))
 
+    def test_analog_mixed_digital_states(self):
+        from edgeweaver.model import DATA_TAIL, Document, Row
+        from edgeweaver.renderer import RenderOptions, render_document
+
+        class Backend:
+            def __init__(self):
+                self.lines = []
+
+            def line(self, x1, y1, x2, y2, **kw):
+                self.lines.append((x1, y1, x2, y2))
+
+            def rect(self, *args, **kwargs):
+                pass
+
+            def polygon(self, *args, **kwargs):
+                pass
+
+            def cubic(self, *args, **kwargs):
+                pass
+
+            def text(self, *args, **kwargs):
+                pass
+
+        doc = Document()
+        doc.slots = 6
+        doc.slot_width = 30
+        doc.name_width = 70
+        doc.signal_height = 16
+        row = Row("ADC", "analog", "AA10Z0", DATA_TAIL)
+        row.samples = [0.0, 1.0, 0.5, 0.0, 0.0, 0.0]
+        row.sample_min = 0.0
+        row.sample_max = 1.0
+        doc.rows = [row]
+        doc.ensure_arrays()
+
+        backend = Backend()
+        render_document(backend, doc, RenderOptions())
+        top = doc.row_top(0)
+        h = doc.signal_height
+        mid = top + h / 2.0
+        x0 = doc.wave_x0
+        sw = doc.slot_width
+        # analog segment rises from slot 0 to slot 1
+        self.assertTrue(any(
+            abs(a - (x0 + 0.5 * sw)) < 0.01 and abs(b - (top + h)) < 0.01
+            and abs(c - (x0 + 1.5 * sw)) < 0.01 and abs(d - top) < 0.01
+            for a, b, c, d in backend.lines))
+        # digital high/low/Z levels
+        self.assertTrue(any(
+            abs(a - (x0 + 2 * sw)) < 0.01 and abs(c - (x0 + 3 * sw)) < 0.01
+            and abs(b - top) < 0.01 and abs(d - top) < 0.01
+            for a, b, c, d in backend.lines))
+        self.assertTrue(any(
+            abs(a - (x0 + 3 * sw)) < 0.01 and abs(c - (x0 + 4 * sw)) < 0.01
+            and abs(b - (top + h)) < 0.01 and abs(d - (top + h)) < 0.01
+            for a, b, c, d in backend.lines))
+        self.assertTrue(any(
+            abs(a - (x0 + 4 * sw)) < 0.01 and abs(c - (x0 + 5 * sw)) < 0.01
+            and abs(b - mid) < 0.01 and abs(d - mid) < 0.01
+            for a, b, c, d in backend.lines))
+        # 1 -> 0 vertical transition
+        self.assertTrue(any(
+            abs(a - c) < 0.01 and abs(a - (x0 + 3 * sw)) < 0.01
+            and abs(b - top) < 0.01 and abs(d - (top + h)) < 0.01
+            for a, b, c, d in backend.lines))
+
     def test_analog_row_waveform(self):
         from edgeweaver.model import DATA_TAIL, Document, Row
         from edgeweaver.renderer import RenderOptions, render_document
@@ -582,7 +648,7 @@ class RenderTests(unittest.TestCase):
         doc.slot_width = 30
         doc.name_width = 70
         doc.signal_height = 16
-        row = Row("ADC", "analog", "0" * 600, DATA_TAIL)
+        row = Row("ADC", "analog", "A" * 4 + "0" * 596, DATA_TAIL)
         row.samples = [0.0, 1.0, 0.5, 0.5]
         row.sample_min = 0.0
         row.sample_max = 1.0

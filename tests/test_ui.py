@@ -216,6 +216,38 @@ class UiTests(unittest.TestCase):
             self.win.undo_stack.undo()
             self.assertEqual(len(self.win.doc.rows), count)
 
+    def test_analog_random_selection_and_digital(self):
+        from edgeweaver.model import DATA_TAIL, Row
+        from edgeweaver.renderer import Selection
+
+        src = SAMPLES / "2-3-2.tim"
+        with tempfile.TemporaryDirectory() as td:
+            copy = Path(td) / "analog_random.tim"
+            shutil.copyfile(src, copy)
+            self.win.open_document(str(copy))
+            doc = self.win.doc
+            slots = doc.slots
+            row = Row("ADC", "analog", "A" * slots + "0" * (600 - slots),
+                      DATA_TAIL)
+            row.samples = [0.5] * slots
+            row.sample_min = 0.0
+            row.sample_max = 1.0
+            index = doc.add_row(row)
+            canvas = self.win.canvas
+            canvas.selection = Selection(index, 2, 5)
+            canvas.fill_analog_random(index, 2, 5)
+            row = self.win.doc.rows[index]
+            self.assertEqual(row.state[2:6], "AAAA")
+            self.assertTrue(all(0.0 <= value <= 1.0 for value in row.samples[2:6]))
+            self.assertTrue(any(abs(value - 0.5) > 1e-9
+                                for value in row.samples[2:6]))
+            self.assertEqual(self.win.undo_stack.undoText(), "Random analog")
+
+            canvas.selection = Selection(index, 2, 5)
+            canvas.apply_selection_char("0")
+            self.assertEqual(self.win.doc.rows[index].state[2:6], "0000")
+            self.assertEqual(self.win.undo_stack.undoText(), "Set selection")
+
     def test_bus_transition_edge_style(self):
         from edgeweaver.dialogs import RowPropertiesDialog
 

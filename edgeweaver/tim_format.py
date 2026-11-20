@@ -282,7 +282,7 @@ ANALOG_PREFIX = "EWA|"
 
 def _serialize_analog(row: Row) -> str:
     payload = {
-        "v": 1,
+        "v": 2,          # v2: per-slot "A"/0/1/Z state is authoritative
         "row": row.name,
         "samples": [float(value) for value in row.samples],
         "min": float(row.sample_min),
@@ -300,7 +300,8 @@ def _parse_analog(record: str):
         samples = [float(value) for value in payload.get("samples", [])]
         return (str(payload["row"]), samples,
                 float(payload.get("min", 0.0)),
-                float(payload.get("max", 1.0)))
+                float(payload.get("max", 1.0)),
+                int(payload.get("v", 1)))
     except (ValueError, KeyError, TypeError):
         return None
 
@@ -308,7 +309,7 @@ def _parse_analog(record: str):
 def _split_list4(entries: list[str]):
     kept: list[str] = []
     values: list[BusValue] = []
-    analogs: dict[str, tuple[list[float], float, float]] = {}
+    analogs: dict[str, tuple[list[float], float, float, int]] = {}
     for entry in entries:
         value = _parse_bus_value(entry)
         if value is not None:
@@ -316,8 +317,8 @@ def _split_list4(entries: list[str]):
             continue
         analog = _parse_analog(entry)
         if analog is not None:
-            name, samples, minimum, maximum = analog
-            analogs[name] = (samples, minimum, maximum)
+            name, samples, minimum, maximum, version = analog
+            analogs[name] = (samples, minimum, maximum, version)
             continue
         kept.append(entry)
     return kept, values, analogs
@@ -355,12 +356,18 @@ def load_tim(path: str | Path) -> Document:
     timebreaks = [t for t in (_parse_timebreak(s) for s in lists[5]) if t is not None]
     list3, measurements = _split_measurements(list(lists[2]))
     list4, bus_values, analog_data = _split_list4(list(lists[3]))
+    slots = max(1, min(STATE_LEN, int(ints4[1])))
     for row in rows:
-        if row.kind == "analog" and row.name in analog_data:
-            samples, minimum, maximum = analog_data[row.name]
-            row.samples = samples
-            row.sample_min = minimum
-            row.sample_max = maximum
+        if row.kind != "analog" or row.name not in analog_data:
+            continue
+        samples, minimum, maximum, analog_version = analog_data[row.name]
+        row.samples = samples
+        row.sample_min = minimum
+        row.sample_max = maximum
+        # v1 stored samples with an all-zero state string; treat every
+        # visible slot as analog.  v2 carries explicit A/0/1/Z states.
+        if analog_version < 2 and "A" not in row.state[:slots]:
+            row.state = "A" * slots + "0" * (STATE_LEN - slots)
 
     doc = Document(
         magic=magic,

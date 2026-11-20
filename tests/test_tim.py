@@ -157,7 +157,7 @@ class TimFormatTests(unittest.TestCase):
     def test_analog_extension_roundtrip(self):
         doc = Document()
         doc.slots = 4
-        doc.rows = [Row("ADC", "analog", "0" * 600, "")]
+        doc.rows = [Row("ADC", "analog", "A" * 4 + "0" * 596, "")]
         row = doc.rows[0]
         row.samples = [0.0, 1.0, 0.5, 0.25]
         row.sample_min = -1.0
@@ -170,6 +170,7 @@ class TimFormatTests(unittest.TestCase):
             back = load_tim(path)
             self.assertEqual(len(back.rows), 1)
             self.assertEqual(back.rows[0].kind, "analog")
+            self.assertEqual(back.rows[0].state[:4], "AAAA")
             self.assertEqual(back.rows[0].samples, [0.0, 1.0, 0.5, 0.25])
             self.assertEqual(back.rows[0].sample_min, -1.0)
             self.assertEqual(back.rows[0].sample_max, 3.0)

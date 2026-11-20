@@ -163,7 +163,19 @@ def build_document(spec: dict) -> Document:
                 raise SpecError(f"{where}: min/max must be numbers") from exc
             if high <= low:
                 high = low + 1.0
-            row = Row(name, "analog", "0" * STATE_LEN, DATA_TAIL)
+            states = str(item.get("states", "")).strip().upper()
+            if not states:
+                states = "A" * doc.slots
+            bad = sorted({ch for ch in states if ch not in "01ZA"})
+            if bad:
+                raise SpecError(
+                    f"{where}: state characters must be 0/1/Z/A, got "
+                    f"{''.join(bad)!r}")
+            if len(states) < doc.slots:
+                states += states[-1] * (doc.slots - len(states))
+            states = states[:doc.slots]
+            row = Row(name, "analog",
+                      states + "0" * (STATE_LEN - doc.slots), DATA_TAIL)
             row.samples = samples
             row.sample_min = low
             row.sample_max = high

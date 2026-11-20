@@ -565,7 +565,9 @@ class MainWindow(QMainWindow):
         if result is None:
             return
         before = self.doc.clone()
-        row = Row(result["name"], "analog", "0" * STATE_LEN, DATA_TAIL)
+        slots = self.doc.slots
+        state = "A" * slots + "0" * (STATE_LEN - slots)
+        row = Row(result["name"], "analog", state, DATA_TAIL)
         row.samples = result["samples"]
         row.sample_min = result["min"]
         row.sample_max = result["max"]

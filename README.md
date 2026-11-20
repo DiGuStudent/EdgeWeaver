@@ -20,8 +20,10 @@ EdgeWeaver 是一个 Linux 原生的时序图编辑器，读写 legacy `.tim` �
   时钟、信号和总线都支持。总线行还可在右键 `Transition Edge` 中快速切换
   Vertical / Slanted（按行生效）；总线斜边在两个不同值之间画成交叉的 **X** 形，
   切换后该行已有分段、Z 边界和 Bus Value 插入边界都会同步重绘。
-- **模拟采样行**：按槽位给出数值（如 ADC 采样），以连续折线显示模拟波形；
-  可设置数值范围 Min/Max，CLI 与 `Add → Analog...` 均可创建，右键可编辑采样。
+- **模拟采样行**：按槽位给出数值（如 ADC 采样），`A` 槽显示连续模拟折线；
+  其余槽可为 `0/1/Z` 数字电平，混合成一条波形。可设置 Min/Max；
+  选中一段后右键 **Random Analog Waveform** 随机生成波形，也可把选中段设为
+  0 / 1 / Z；CLI 与 `Add → Analog...` 均可创建，双击可编辑采样。
 - **时钟周期数**：工具栏 `Cycles:` 可直接增减可见时钟周期数，修改后自动重生成所有时钟；
   `Signal/Clock Properties` 还可设置时钟周期、占空比、起始电平。
 - **标注**：文本标签、信号间关系箭头、时间断裂（Time Break）；
@@ -184,8 +186,9 @@ NAME\t\t\t\t\tSEP_0.<separator fields>
 - **总线文字覆盖**：存放在第 4 个辅助字符串表（list4）中，每条以
   `EWB|` 开头、后接 ASCII JSON（`v/row/start/end/text`），在指定槽区间内
   覆盖默认的单字符总线值；不含 `EWB|` 的 list4 条目原样保留。
-- **模拟采样**：行记录使用 `ANA_0_.` 前缀（其余工具可忽略），采样值存于
-  list4 的 `EWA|` ASCII JSON（`v/row/samples/min/max`）。
+- **模拟采样**：行记录使用 `ANA_0_.` 前缀（其余工具可忽略），state 字符
+  `A`/`0`/`1`/`Z` 表示模拟/数字区段；采样值存于 list4 的 `EWA|` ASCII JSON
+  （`v/row/samples/min/max`）。
 - **边沿间隔测量**：存放在第 3 个辅助字符串表（list3）中，每条以
   `EWM|` 开头、后接 ASCII JSON（`v/src/sc/dst/dc/text/suffix/y/dx/color`）。
   `suffix` 为空或 `ns`/`µs`（也接受 `us`）/`ms`；`y` 为刻度线绝对高度（缺省=两行中点）；
@@ -200,7 +203,7 @@ NAME\t\t\t\t\tSEP_0.<separator fields>
 QT_QPA_PLATFORM=offscreen /usr/bin/python3 -m unittest discover -s tests -v
 ```
 
-当前 53 个测试全部通过，包括：
+当前 55 个测试全部通过，包括：
 
 - 4 个真实 `.tim` 的字节级 round-trip；
 - EMF 记录结构、头部帧/设备尺寸、Unicode 文本偏移与字体记录；
@@ -209,6 +212,7 @@ QT_QPA_PLATFORM=offscreen /usr/bin/python3 -m unittest discover -s tests -v
 - 总线文字覆盖：双击/右键编辑、`2b'11` 等写法、原值两段/三段拆分、保存/重载；
 - 总线垂直/斜边切换（右键 `Transition Edge`、属性对话框、渲染与撤销）；
 - 总线斜边 X 交叉、模拟采样行折线渲染与保存/重载；
+- 模拟行混合 0/1/Z、选中段随机波形生成；
 - 箭头方向键像素微调、撤销与保存/重载；
 - 边沿间隔测量：竖线/双向箭头几何、中文文字、颜色/高度/水平偏移、拖动与方向键、
   保存/重载、GUI 工具；

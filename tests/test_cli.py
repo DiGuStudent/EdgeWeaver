@@ -151,7 +151,7 @@ class CliTests(unittest.TestCase):
             "signal_height": 16,
             "name_width": 70,
             "rows": [
-                {"name": "ADC", "type": "analog",
+                {"name": "ADC", "type": "analog", "states": "AA10",
                  "samples": [0, 1, 0.5, 0.25], "min": 0, "max": 1},
             ],
         }
@@ -165,6 +165,7 @@ class CliTests(unittest.TestCase):
             self.assertEqual(code, 0, err)
             doc = load_tim(tim)
             self.assertEqual(doc.rows[0].kind, "analog")
+            self.assertEqual(doc.rows[0].state[:4], "AA10")
             self.assertEqual(doc.rows[0].samples, [0.0, 1.0, 0.5, 0.25])
             self.assertEqual(doc.rows[0].sample_min, 0.0)
             self.assertEqual(doc.rows[0].sample_max, 1.0)

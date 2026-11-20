@@ -434,7 +434,9 @@ class Document:
         if not (0 <= row_index < len(self.rows)):
             return False
         row = self.rows[row_index]
-        if row.kind in ("separator", "analog"):
+        if row.kind == "separator":
+            return False
+        if row.kind == "analog" and char not in ("0", "1", "Z", "A"):
             return False
         lo = max(0, min(start_slot, end_slot))
         hi = min(self.slots - 1, max(start_slot, end_slot))
