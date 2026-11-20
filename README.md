@@ -1,5 +1,7 @@
 # EdgeWeaver
 
+![EdgeWeaver 界面](docs/screenshot.png)
+
 EdgeWeaver 是一个 Linux 原生的时序图编辑器，读写 legacy `.tim` 时序文件。
 
 ---
@@ -111,7 +113,9 @@ EdgeWeaver/
 ├── requirements.txt
 ├── README.md
 ├── LICENSE
-├── docs/cli.md              # CLI 与 JSON 描述格式说明
+├── docs/
+│   ├── cli.md              # CLI 与 JSON 描述格式说明
+│   └── screenshot.png      # 界面截图
 ├── samples/                 # legacy .tim test fixtures
 ├── edgeweaver/
 │   ├── model.py             # 文档模型、行/标签/箭头/时间断裂、600 槽状态
